@@ -1,0 +1,3 @@
+fastapi[standard]==0.115.12
+uvicorn==0.34.2
+scrapling[fetchers]==0.2.99

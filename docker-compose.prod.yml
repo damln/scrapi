@@ -1,0 +1,45 @@
+name: scrapi
+
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile.prod
+    env_file:
+      - .env
+      - .env.production
+    networks:
+      - traefik-public
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/docs"]
+      interval: 5s
+      timeout: 3s
+      retries: 3
+      start_period: 15s
+    deploy:
+      mode: replicated
+      replicas: 3
+      update_config:
+        parallelism: 1
+        delay: 10s
+        order: start-first
+        failure_action: rollback
+      rollback_config:
+        parallelism: 1
+        delay: 10s
+      restart_policy:
+        condition: on-failure
+        delay: 5s
+        max_attempts: 3
+      labels:
+        - "traefik.enable=true"
+        - "traefik.http.routers.scrapi.rule=Host(`scrapi.damln.com`)"
+        - "traefik.http.routers.scrapi.entrypoints=websecure"
+        - "traefik.http.routers.scrapi.tls=true"
+        - "traefik.http.routers.scrapi.tls.certresolver=letsencrypt"
+        - "traefik.http.routers.scrapi.tls.domains[0].main=scrapi.damln.com"
+        - "traefik.http.services.scrapi.loadbalancer.server.port=8000"
+
+networks:
+  traefik-public:
+    external: true
