@@ -99,6 +99,11 @@ def strip_large_styles(html: str) -> str:
     )
 
 
+def strip_inline_styles(html: str) -> str:
+    """Remove all inline style="..." attributes from HTML tags."""
+    return re.sub(r'\s+style\s*=\s*"[^"]*"', "", html, flags=re.IGNORECASE)
+
+
 def _is_relative(url: str) -> bool:
     if not url:
         return False

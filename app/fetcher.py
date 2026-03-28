@@ -4,10 +4,10 @@ from scrapling.fetchers import StealthyFetcher
 
 from app.config import FETCH_TIMEOUT_MS
 from app.cookie_dismiss import dismiss_cookies
-from app.html_rewriter import make_links_absolute, strip_inline_scripts, strip_large_styles
+from app.html_rewriter import make_links_absolute, strip_inline_scripts, strip_inline_styles, strip_large_styles
 
 
-def fetch_single_url(url: str) -> dict:
+def fetch_single_url(url: str, no_style: bool = False) -> dict:
     """Fetch a single URL using StealthyFetcher and return full HTML with absolute links."""
     try:
         page = StealthyFetcher.fetch(
@@ -22,6 +22,8 @@ def fetch_single_url(url: str) -> dict:
         html = page.body if isinstance(page.body, str) else page.body.decode("utf-8", errors="replace")
         html = strip_inline_scripts(html)
         html = strip_large_styles(html)
+        if no_style:
+            html = strip_inline_styles(html)
         html = make_links_absolute(html, url)
 
         return {
@@ -38,8 +40,8 @@ def fetch_single_url(url: str) -> dict:
         }
 
 
-async def fetch_urls(urls: list[str]) -> list[dict]:
+async def fetch_urls(urls: list[str], no_style: bool = False) -> list[dict]:
     """Fetch multiple URLs concurrently using a thread pool."""
     loop = asyncio.get_event_loop()
-    tasks = [loop.run_in_executor(None, fetch_single_url, url) for url in urls]
+    tasks = [loop.run_in_executor(None, fetch_single_url, url, no_style) for url in urls]
     return await asyncio.gather(*tasks)
