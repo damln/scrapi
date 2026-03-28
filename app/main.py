@@ -1,10 +1,23 @@
+from contextlib import asynccontextmanager
+
 from fastapi import Depends, FastAPI, Query
 from fastapi.responses import PlainTextResponse
 
+from app import cloudflare_fetcher, firecrawl_fetcher
 from app.auth import verify_token
 from app.fetcher import fetch_urls
 
-app = FastAPI(docs_url=None, redoc_url=None, openapi_url=None)
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    cloudflare_fetcher.init_client()
+    firecrawl_fetcher.init_client()
+    yield
+    await cloudflare_fetcher.close_client()
+    await firecrawl_fetcher.close_client()
+
+
+app = FastAPI(docs_url=None, redoc_url=None, openapi_url=None, lifespan=lifespan)
 
 MAX_URLS_PER_REQUEST = 10
 

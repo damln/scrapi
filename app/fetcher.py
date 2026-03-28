@@ -1,10 +1,11 @@
 import asyncio
+import concurrent.futures
 import logging
 
 from scrapling.fetchers import StealthyFetcher
 
 from app.cloudflare_fetcher import fetch_with_cloudflare
-from app.config import CLOUDFLARE_API_KEY, FIRECRAWL_API_KEY, SCRAPLING_TIMEOUT_MS
+from app.config import CLOUDFLARE_API_KEY, FIRECRAWL_API_KEY, SCRAPLING_MAX_CONCURRENT, SCRAPLING_TIMEOUT_MS
 from app.content_validator import validate_content
 from app.cookie_dismiss import dismiss_cookies
 from app.firecrawl_fetcher import fetch_with_firecrawl
@@ -12,6 +13,22 @@ from app.html_rewriter import make_links_absolute, strip_inline_scripts, strip_i
 from app.url_cleaner import clean_url
 
 logger = logging.getLogger(__name__)
+
+_thread_pool = concurrent.futures.ThreadPoolExecutor(
+    max_workers=SCRAPLING_MAX_CONCURRENT, thread_name_prefix="scrapling"
+)
+
+_scrapling_semaphore: asyncio.Semaphore | None = None
+
+SCRAPLING_RETRY_ATTEMPTS = 2
+SCRAPLING_RETRY_DELAY_S = 1.0
+
+
+def _get_scrapling_semaphore() -> asyncio.Semaphore:
+    global _scrapling_semaphore
+    if _scrapling_semaphore is None:
+        _scrapling_semaphore = asyncio.Semaphore(SCRAPLING_MAX_CONCURRENT)
+    return _scrapling_semaphore
 
 
 def _post_process(html: str, url: str, no_style: bool) -> str:
@@ -51,38 +68,49 @@ async def _try_provider(
     """Try a single provider. Returns (html, scores) on success, (None, None) on failure.
 
     When is_last=True, skip content validation and return whatever HTML was fetched.
+    The raw provider gets one retry on exception (transient browser failures).
     """
     if provider != "raw" and not PROVIDER_API_KEYS.get(provider):
         logger.info("[%s] skipped (no API key configured)", provider)
         return None, None
 
-    try:
-        logger.info("[%s] fetching %s", provider, url)
+    attempts = SCRAPLING_RETRY_ATTEMPTS if provider == "raw" else 1
 
-        if provider == "raw":
-            html = await loop.run_in_executor(None, _fetch_with_scrapling, url)
-        elif provider == "cloudflare":
-            html = await fetch_with_cloudflare(url)
-        elif provider == "firecrawl":
-            html = await fetch_with_firecrawl(url)
-        else:
-            logger.warning("[%s] unknown provider", provider)
+    for attempt in range(attempts):
+        try:
+            logger.info("[%s] fetching %s", provider, url)
+
+            if provider == "raw":
+                sem = _get_scrapling_semaphore()
+                async with sem:
+                    html = await loop.run_in_executor(_thread_pool, _fetch_with_scrapling, url)
+            elif provider == "cloudflare":
+                html = await fetch_with_cloudflare(url)
+            elif provider == "firecrawl":
+                html = await fetch_with_firecrawl(url)
+            else:
+                logger.warning("[%s] unknown provider", provider)
+                return None, None
+
+            html = _post_process(html, url, no_style)
+            validation = validate_content(html)
+
+            if validation["valid"]:
+                logger.info("[%s] valid content for %s", provider, url)
+                return html, validation["scores"]
+
+            if is_last:
+                logger.warning("[%s] content weak for %s: %s (last provider, returning anyway)", provider, url, validation["reason"])
+                return html, validation["scores"]
+
+            logger.warning("[%s] content rejected for %s: %s", provider, url, validation["reason"])
             return None, None
-
-        html = _post_process(html, url, no_style)
-        validation = validate_content(html)
-
-        if validation["valid"]:
-            logger.info("[%s] valid content for %s", provider, url)
-            return html, validation["scores"]
-
-        if is_last:
-            logger.warning("[%s] content weak for %s: %s (last provider, returning anyway)", provider, url, validation["reason"])
-            return html, validation["scores"]
-
-        logger.warning("[%s] content rejected for %s: %s", provider, url, validation["reason"])
-    except Exception as error:
-        logger.warning("[%s] failed for %s: %s", provider, url, error)
+        except Exception as error:
+            if attempt < attempts - 1:
+                logger.warning("[%s] attempt %d failed for %s: %s — retrying", provider, attempt + 1, url, error)
+                await asyncio.sleep(SCRAPLING_RETRY_DELAY_S)
+                continue
+            logger.warning("[%s] failed for %s: %s", provider, url, error)
 
     return None, None
 

@@ -18,7 +18,14 @@ services:
       start_period: 15s
     deploy:
       mode: replicated
-      replicas: 3
+      replicas: 2
+      resources:
+        limits:
+          memory: 3G
+          cpus: "2.0"
+        reservations:
+          memory: 512M
+          cpus: "0.5"
       update_config:
         parallelism: 1
         delay: 10s
