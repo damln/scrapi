@@ -2,7 +2,7 @@ services:
   app:
     build:
       context: .
-      dockerfile: Dockerfile.dev
+      dockerfile: Dockerfile
     ports:
       - "10700:10700"
     volumes:
@@ -10,4 +10,5 @@ services:
     env_file:
       - .env
       - .env.development
+    command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "10700", "--reload"]
     restart: unless-stopped
