@@ -156,6 +156,20 @@ This downloads the latest lists and regenerates `app/cookie_dismiss/cosmetic_fil
 
 Built-in via Scrapling's `disable_ads=True` parameter, which installs **uBlock Origin** as a Firefox addon in the Camoufox browser. This blocks ads, trackers, and analytics at the network level — no custom domain lists needed.
 
+## NanoClaw (MacBook Air) Setup
+
+Scrapi runs on the MacBook Air at `~/scrapi`. From other Docker containers on the same host (e.g. NanoClaw agents), reach it at:
+
+```
+http://host.docker.internal:10700
+```
+
+**Update to latest version:**
+
+```bash
+cd ~/scrapi && git pull && docker compose -f docker-compose.dev.yml up --build -d
+```
+
 ## Environment Variables
 
 - `SCRAPI_API_TOKEN` — required, the bearer token for API auth
