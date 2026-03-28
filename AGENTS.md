@@ -11,8 +11,16 @@ FastAPI API that fetches full HTML content from URLs using Scrapling's StealthyF
 
 ## Running
 
+Development (with hot reload):
+
 ```bash
 docker compose -f docker-compose.dev.yml up --build
+```
+
+Local production mode (no reload, 2 workers, same as prod):
+
+```bash
+docker compose -f docker-compose.local.yml up --build
 ```
 
 ## API
@@ -113,17 +121,17 @@ The last provider in the chain returns whatever it fetched, even if validation f
 Single URL:
 
 ```bash
-curl -H "Authorization: Bearer dev-token-change-me" "http://localhost:8000/api/v1/content?urls=https://damln.com"
+curl -H "Authorization: Bearer dev-token-change-me" "http://localhost:10700/api/v1/content?urls=https://damln.com"
 
-curl -H "Authorization: Bearer dev-token-change-me" "http://localhost:8000/api/v1/content?urls=https://www.airbnb.com/rooms/1390463594335012333?check_in=2026-07-10&check_out=2026-07-12&photo_id=2198427852&source_impression_id=p3_1774637206_P3sg_i0zJQ6efoL-&previous_page_section_name=1000"
+curl -H "Authorization: Bearer dev-token-change-me" "http://localhost:10700/api/v1/content?urls=https://www.airbnb.com/rooms/1390463594335012333?check_in=2026-07-10&check_out=2026-07-12&photo_id=2198427852&source_impression_id=p3_1774637206_P3sg_i0zJQ6efoL-&previous_page_section_name=1000"
 
-curl -H "Authorization: Bearer dev-token-change-me" "http://localhost:8000/api/v1/content?urls=https://www.nytimes.com/spotlight/lifestyle"
+curl -H "Authorization: Bearer dev-token-change-me" "http://localhost:10700/api/v1/content?urls=https://www.nytimes.com/spotlight/lifestyle"
 ```
 
 Multiple URLs (repeat the `urls` param):
 
 ```bash
-curl -H "Authorization: Bearer dev-token-change-me" "http://localhost:8000/api/v1/content?urls=https://damln.com&urls=https://example.com&urls=https://other.com"
+curl -H "Authorization: Bearer dev-token-change-me" "http://localhost:10700/api/v1/content?urls=https://damln.com&urls=https://example.com&urls=https://other.com"
 ```
 
 ## Cookie/Popup Dismissal
