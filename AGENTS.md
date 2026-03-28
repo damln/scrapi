@@ -39,6 +39,32 @@ Multiple URLs (repeat the `urls` param):
 curl -H "Authorization: Bearer dev-token-change-me" "http://localhost:8000/api/v1/content?urls=https://damln.com&urls=https://example.com&urls=https://other.com"
 ```
 
+## Cookie/Popup Dismissal
+
+Automatic cookie consent and popup dismissal using cosmetic filter lists injected via Scrapling's `page_action` callback.
+
+**How it works (4 layers):**
+1. CSS cosmetic filters hide banners (33K+ selectors)
+2. MutationObserver JS catches dynamically injected banners
+3. Fallback clicks on known accept buttons (OneTrust, Cookiebot, etc.)
+4. DOM cleanup removes leftover banner elements
+
+**Filter list sources:**
+- EasyList Fanboy Annoyance: `https://easylist-downloads.adblockplus.org/fanboy-annoyance.txt`
+- I Don't Care About Cookies: `https://www.i-dont-care-about-cookies.eu/abp/`
+
+These are AdBlock Plus format filter lists. The parser (`app/cookie_dismiss/filter_parser.py`) extracts generic cosmetic rules (lines starting with `##`) and generates CSS + JS assets.
+
+**Update filter lists:**
+
+```bash
+python scripts/update_cookie_filters.py
+```
+
+This downloads the latest lists and regenerates `app/cookie_dismiss/cosmetic_filters.css` and `app/cookie_dismiss/observer.js`. Run periodically to stay current.
+
+**Key constraint:** The `page_action` callback must be sync and must `return page` — Scrapling reassigns the return value internally.
+
 ## Environment Variables
 
 - `SCRAPI_API_TOKEN` — required, the bearer token for API auth

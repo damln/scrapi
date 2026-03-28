@@ -3,6 +3,7 @@ import asyncio
 from scrapling.fetchers import StealthyFetcher
 
 from app.config import FETCH_TIMEOUT_MS
+from app.cookie_dismiss import dismiss_cookies
 from app.html_rewriter import make_links_absolute, strip_inline_scripts, strip_large_styles
 
 
@@ -14,6 +15,7 @@ def fetch_single_url(url: str) -> dict:
             headless=True,
             network_idle=True,
             timeout=FETCH_TIMEOUT_MS,
+            page_action=dismiss_cookies,
         )
 
         html = page.body if isinstance(page.body, str) else page.body.decode("utf-8", errors="replace")
