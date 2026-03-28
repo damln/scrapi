@@ -45,8 +45,13 @@ PROVIDER_API_KEYS = {
 }
 
 
-async def _try_provider(provider: str, url: str, no_style: bool, loop) -> tuple[str | None, dict | None]:
-    """Try a single provider. Returns (html, scores) on success, (None, None) on failure."""
+async def _try_provider(
+    provider: str, url: str, no_style: bool, loop, is_last: bool = False,
+) -> tuple[str | None, dict | None]:
+    """Try a single provider. Returns (html, scores) on success, (None, None) on failure.
+
+    When is_last=True, skip content validation and return whatever HTML was fetched.
+    """
     if provider != "raw" and not PROVIDER_API_KEYS.get(provider):
         logger.info("[%s] skipped (no API key configured)", provider)
         return None, None
@@ -71,6 +76,10 @@ async def _try_provider(provider: str, url: str, no_style: bool, loop) -> tuple[
             logger.info("[%s] valid content for %s", provider, url)
             return html, validation["scores"]
 
+        if is_last:
+            logger.warning("[%s] content weak for %s: %s (last provider, returning anyway)", provider, url, validation["reason"])
+            return html, validation["scores"]
+
         logger.warning("[%s] content rejected for %s: %s", provider, url, validation["reason"])
     except Exception as error:
         logger.warning("[%s] failed for %s: %s", provider, url, error)
@@ -84,8 +93,9 @@ async def fetch_single_url(raw_url: str, no_style: bool = False, provider_order:
     providers = provider_order or DEFAULT_PROVIDER_ORDER
     loop = asyncio.get_event_loop()
 
-    for provider in providers:
-        html, scores = await _try_provider(provider, url, no_style, loop)
+    for i, provider in enumerate(providers):
+        is_last = i == len(providers) - 1
+        html, scores = await _try_provider(provider, url, no_style, loop, is_last)
         if html is not None:
             return _success(url, raw_url, html, provider, scores)
 
