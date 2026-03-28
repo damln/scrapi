@@ -12,3 +12,9 @@ services:
       - .env.development
     command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "10700", "--reload"]
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:10700/health"]
+      interval: 5s
+      timeout: 3s
+      retries: 3
+      start_period: 15s

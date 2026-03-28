@@ -11,16 +11,8 @@ FastAPI API that fetches full HTML content from URLs using Scrapling's StealthyF
 
 ## Running
 
-Development (with hot reload):
-
 ```bash
 docker compose -f docker-compose.dev.yml up --build
-```
-
-Local production mode (no reload, 2 workers, same as prod):
-
-```bash
-docker compose -f docker-compose.local.yml up --build
 ```
 
 ## API
