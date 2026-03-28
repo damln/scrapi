@@ -37,7 +37,9 @@ Fetch full HTML content from one or more URLs.
 |---|---|---|---|---|
 | `urls` | string (repeated) | yes | — | URLs to fetch. Repeat for multiple: `urls=...&urls=...` |
 | `no_style` | bool | no | `false` | Remove all inline `style="..."` attributes |
+| `no_script` | bool | no | `false` | Remove all inline `<script>` tags (without `src` attribute) |
 | `provider_order` | string | no | `raw,cloudflare,firecrawl` | Comma-separated provider order |
+| `scroll_full` | bool | no | `false` | Scroll full page incrementally to trigger lazy-loaded content. Adds ~5–20s. Supported by `raw` and `cloudflare`; no-op for `firecrawl`. |
 
 **Max 10 URLs per request.**
 
@@ -126,6 +128,12 @@ Multiple URLs (repeat the `urls` param):
 curl -H "Authorization: Bearer dev-token-change-me" "http://localhost:10700/api/v1/content?urls=https://damln.com&urls=https://example.com&urls=https://other.com"
 ```
 
+With lazy-load scrolling (for pages that load content on scroll):
+
+```bash
+curl -H "Authorization: Bearer dev-token-change-me" "http://localhost:10700/api/v1/content?urls=https://www.coches.net/segunda-mano/&scroll_full=true"
+```
+
 ## Cookie/Popup Dismissal
 
 Automatic cookie consent and popup dismissal using cosmetic filter lists injected via Scrapling's `page_action` callback.
@@ -151,6 +159,25 @@ python scripts/update_cookie_filters.py
 This downloads the latest lists and regenerates `app/cookie_dismiss/cosmetic_filters.css` and `app/cookie_dismiss/observer.js`. Run periodically to stay current.
 
 **Key constraint:** The `page_action` callback must be sync and must `return page` — Scrapling reassigns the return value internally.
+
+## Lazy-Load Scrolling
+
+When `scroll_full=true` is passed, providers scroll the full page incrementally after the initial page load to trigger intersection-observer-based lazy loading (e.g. coches.net search results, infinite-scroll listing pages).
+
+**Raw provider (Scrapling):**
+- Scrolls in 800px increments via `window.scrollTo`
+- Waits 400ms between each step (for XHR/fetch triggers to fire)
+- Stops early when page height stabilizes after reaching the bottom
+- Capped at 40 iterations (~32 000px max depth)
+- 1500ms network settle wait after the last scroll step
+- Adds roughly 5–20s to raw fetch time
+
+**Cloudflare provider:**
+- Injects an async IIFE via `addScriptTag` that mirrors the same scroll loop
+- Adds `waitForTimeout: 20500` (ms) to give the script time to complete
+- Requires `CLOUDFLARE_TIMEOUT_SECONDS` >= 30 (default satisfies this)
+
+**Firecrawl provider:** No scroll support — `scroll_full` is ignored.
 
 ## Ad/Tracker Blocking
 

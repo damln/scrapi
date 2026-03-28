@@ -38,7 +38,9 @@ async def health():
 async def get_content(
     urls: list[str] = Query(..., description="List of URLs to fetch"),
     no_style: bool = Query(False, description="Remove all inline style attributes"),
+    no_script: bool = Query(False, description="Remove all inline script tags"),
     provider_order: str = Query("raw,cloudflare,firecrawl", description="Comma-separated provider order"),
+    scroll_full: bool = Query(False, description="Scroll full page to trigger lazy-loaded content"),
     _token: str = Depends(verify_token),
 ):
     if len(urls) > MAX_URLS_PER_REQUEST:
@@ -55,5 +57,5 @@ async def get_content(
             "results": [],
         }
 
-    results = await fetch_urls(urls, no_style=no_style, provider_order=providers)
+    results = await fetch_urls(urls, no_style=no_style, no_script=no_script, provider_order=providers, scroll_full=scroll_full)
     return {"results": results}

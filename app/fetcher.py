@@ -1,5 +1,6 @@
 import asyncio
 import concurrent.futures
+import functools
 import logging
 
 from scrapling.fetchers import StealthyFetcher
@@ -23,6 +24,11 @@ _scrapling_semaphore: asyncio.Semaphore | None = None
 SCRAPLING_RETRY_ATTEMPTS = 2
 SCRAPLING_RETRY_DELAY_S = 1.0
 
+SCROLL_STEP_PX = 800
+SCROLL_DELAY_MS = 400
+SCROLL_MAX_ITERATIONS = 40
+SCROLL_SETTLE_MS = 1500
+
 
 def _get_scrapling_semaphore() -> asyncio.Semaphore:
     global _scrapling_semaphore
@@ -31,8 +37,9 @@ def _get_scrapling_semaphore() -> asyncio.Semaphore:
     return _scrapling_semaphore
 
 
-def _post_process(html: str, url: str, no_style: bool) -> str:
-    html = strip_inline_scripts(html)
+def _post_process(html: str, url: str, no_style: bool, no_script: bool) -> str:
+    if no_script:
+        html = strip_inline_scripts(html)
     html = strip_large_styles(html)
     if no_style:
         html = strip_inline_styles(html)
@@ -40,14 +47,44 @@ def _post_process(html: str, url: str, no_style: bool) -> str:
     return html
 
 
-def _fetch_with_scrapling(url: str) -> str:
+def scroll_full_page(page):
+    """Scroll the full page incrementally to trigger lazy-loaded content."""
+    prev_height = page.evaluate("document.body.scrollHeight")
+
+    for _ in range(SCROLL_MAX_ITERATIONS):
+        current_pos = page.evaluate("window.pageYOffset")
+        page.evaluate(f"window.scrollTo(0, {current_pos + SCROLL_STEP_PX})")
+        page.wait_for_timeout(SCROLL_DELAY_MS)
+
+        new_height = page.evaluate("document.body.scrollHeight")
+        reached_bottom = page.evaluate(
+            "window.pageYOffset + window.innerHeight >= document.body.scrollHeight - 50"
+        )
+        if reached_bottom and new_height == prev_height:
+            break
+        prev_height = new_height
+
+    page.wait_for_timeout(SCROLL_SETTLE_MS)
+    page.evaluate("window.scrollTo(0, 0)")
+    return page
+
+
+def dismiss_cookies_and_scroll(page):
+    """Cookie dismissal followed by full-page scroll for lazy-load triggering."""
+    page = dismiss_cookies(page)
+    page = scroll_full_page(page)
+    return page
+
+
+def _fetch_with_scrapling(url: str, scroll_full: bool = False) -> str:
     """Fetch using StealthyFetcher. Raises on failure."""
+    action = dismiss_cookies_and_scroll if scroll_full else dismiss_cookies
     page = StealthyFetcher.fetch(
         url,
         headless=True,
         network_idle=True,
         timeout=SCRAPLING_TIMEOUT_MS,
-        page_action=dismiss_cookies,
+        page_action=action,
         disable_ads=True,
     )
     html = page.body if isinstance(page.body, str) else page.body.decode("utf-8", errors="replace")
@@ -63,7 +100,7 @@ PROVIDER_API_KEYS = {
 
 
 async def _try_provider(
-    provider: str, url: str, no_style: bool, loop, is_last: bool = False,
+    provider: str, url: str, no_style: bool, no_script: bool, loop, is_last: bool = False, scroll_full: bool = False,
 ) -> tuple[str | None, dict | None]:
     """Try a single provider. Returns (html, scores) on success, (None, None) on failure.
 
@@ -82,17 +119,18 @@ async def _try_provider(
 
             if provider == "raw":
                 sem = _get_scrapling_semaphore()
+                fn = functools.partial(_fetch_with_scrapling, url, scroll_full=scroll_full)
                 async with sem:
-                    html = await loop.run_in_executor(_thread_pool, _fetch_with_scrapling, url)
+                    html = await loop.run_in_executor(_thread_pool, fn)
             elif provider == "cloudflare":
-                html = await fetch_with_cloudflare(url)
+                html = await fetch_with_cloudflare(url, scroll_full=scroll_full)
             elif provider == "firecrawl":
                 html = await fetch_with_firecrawl(url)
             else:
                 logger.warning("[%s] unknown provider", provider)
                 return None, None
 
-            html = _post_process(html, url, no_style)
+            html = _post_process(html, url, no_style, no_script)
             validation = validate_content(html)
 
             if validation["valid"]:
@@ -115,7 +153,7 @@ async def _try_provider(
     return None, None
 
 
-async def fetch_single_url(raw_url: str, no_style: bool = False, provider_order: list[str] | None = None) -> dict:
+async def fetch_single_url(raw_url: str, no_style: bool = False, no_script: bool = False, provider_order: list[str] | None = None, scroll_full: bool = False) -> dict:
     """Fetch a URL trying providers in the given order."""
     url = clean_url(raw_url)
     providers = provider_order or DEFAULT_PROVIDER_ORDER
@@ -123,7 +161,7 @@ async def fetch_single_url(raw_url: str, no_style: bool = False, provider_order:
 
     for i, provider in enumerate(providers):
         is_last = i == len(providers) - 1
-        html, scores = await _try_provider(provider, url, no_style, loop, is_last)
+        html, scores = await _try_provider(provider, url, no_style, no_script, loop, is_last, scroll_full=scroll_full)
         if html is not None:
             return _success(url, raw_url, html, provider, scores)
 
@@ -150,7 +188,7 @@ def _success(url: str, raw_url: str, html: str, provider: str, scores: dict | No
     return result
 
 
-async def fetch_urls(urls: list[str], no_style: bool = False, provider_order: list[str] | None = None) -> list[dict]:
+async def fetch_urls(urls: list[str], no_style: bool = False, no_script: bool = False, provider_order: list[str] | None = None, scroll_full: bool = False) -> list[dict]:
     """Fetch multiple URLs concurrently with fallback chain."""
-    tasks = [fetch_single_url(url, no_style, provider_order) for url in urls]
+    tasks = [fetch_single_url(url, no_style, no_script, provider_order, scroll_full=scroll_full) for url in urls]
     return await asyncio.gather(*tasks)
