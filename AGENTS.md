@@ -183,9 +183,13 @@ When `scroll_full=true` is passed, providers scroll the full page incrementally 
 
 Built-in via Scrapling's `disable_ads=True` parameter, which installs **uBlock Origin** as a Firefox addon in the Camoufox browser. This blocks ads, trackers, and analytics at the network level — no custom domain lists needed.
 
+## Deployment
+
+For production deployment to the server, use the `damian-server` skill (`/damian-server`). It covers the full Docker Swarm deploy flow, config resolution via `os.yml` + `os_config.yml`, and all common pitfalls.
+
 ## NanoClaw (MacBook Air) Setup
 
-Scrapi runs on the MacBook Air at `~/scrapi`. From other Docker containers on the same host (e.g. NanoClaw agents), reach it at:
+Scrapi also runs on the MacBook Air at `~/scrapi` for local use. From other Docker containers on the same host (e.g. NanoClaw agents), reach it at:
 
 ```
 http://host.docker.internal:10700
