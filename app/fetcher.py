@@ -9,6 +9,7 @@ from app.content_validator import validate_content
 from app.cookie_dismiss import dismiss_cookies
 from app.firecrawl_fetcher import fetch_with_firecrawl
 from app.html_rewriter import make_links_absolute, strip_inline_scripts, strip_inline_styles, strip_large_styles
+from app.url_cleaner import clean_url
 
 logger = logging.getLogger(__name__)
 
@@ -36,8 +37,9 @@ def _fetch_with_scrapling(url: str) -> str:
     return html
 
 
-async def fetch_single_url(url: str, no_style: bool = False) -> dict:
+async def fetch_single_url(raw_url: str, no_style: bool = False) -> dict:
     """Fetch a URL with fallback chain: scrapling -> cloudflare -> firecrawl."""
+    url = clean_url(raw_url)
     loop = asyncio.get_event_loop()
 
     # Step 1: Try scrapling
@@ -49,7 +51,7 @@ async def fetch_single_url(url: str, no_style: bool = False) -> dict:
 
         if validation["valid"]:
             logger.info("[scrapling] valid content for %s", url)
-            return _success(url, html, "scrapling", validation["scores"])
+            return _success(url, raw_url, html, "scrapling", validation["scores"])
 
         logger.warning("[scrapling] content rejected for %s: %s", url, validation["reason"])
     except Exception as error:
@@ -65,7 +67,7 @@ async def fetch_single_url(url: str, no_style: bool = False) -> dict:
 
             if validation["valid"]:
                 logger.info("[cloudflare] valid content for %s", url)
-                return _success(url, html, "cloudflare", validation["scores"])
+                return _success(url, raw_url, html, "cloudflare", validation["scores"])
 
             logger.warning("[cloudflare] content rejected for %s: %s", url, validation["reason"])
         except Exception as error:
@@ -80,7 +82,7 @@ async def fetch_single_url(url: str, no_style: bool = False) -> dict:
             html = await fetch_with_firecrawl(url)
             html = _post_process(html, url, no_style)
             logger.info("[firecrawl] returning content for %s (last resort)", url)
-            return _success(url, html, "firecrawl")
+            return _success(url, raw_url, html, "firecrawl")
         except Exception as error:
             logger.warning("[firecrawl] failed for %s: %s", url, error)
     else:
@@ -88,6 +90,7 @@ async def fetch_single_url(url: str, no_style: bool = False) -> dict:
 
     return {
         "url": url,
+        "raw_url": raw_url,
         "status": "error",
         "provider": None,
         "error": "All providers failed to fetch valid content",
@@ -95,9 +98,10 @@ async def fetch_single_url(url: str, no_style: bool = False) -> dict:
     }
 
 
-def _success(url: str, html: str, provider: str, scores: dict | None = None) -> dict:
+def _success(url: str, raw_url: str, html: str, provider: str, scores: dict | None = None) -> dict:
     result = {
         "url": url,
+        "raw_url": raw_url,
         "status": "success",
         "provider": provider,
         "html": html,
