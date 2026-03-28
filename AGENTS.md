@@ -20,13 +20,29 @@ docker compose -f docker-compose.dev.yml up --build
 - `GET /api/v1/content?urls=https://example.com&urls=https://other.com`
 - Auth: Bearer token in `Authorization` header
 - Returns full HTML with all relative links converted to absolute
-- Each result includes a `provider` field: `"scrapling"`, `"cloudflare"`, or `"firecrawl"`
+- Each result includes a `provider` field: `"raw"`, `"cloudflare"`, or `"firecrawl"`
+
+### URL Cleaning
+
+Before fetching, all URLs are cleaned:
+- **Tracking params stripped**: UTM, fbclid, gclid, msclkid, and 40+ other tracking parameters are removed
+- **Query params sorted alphabetically**: ensures consistent URLs for future cache hits
+- Response includes both `url` (cleaned) and `raw_url` (original input)
 
 ### Fallback Chain
 
-1. **Scrapling** (15s timeout) — stealth browser fetch, validates content quality
-2. **Cloudflare Browser Rendering** — if scrapling content is blocked/truncated/empty
-3. **Firecrawl** — last resort if cloudflare also fails
+Default order: `raw` → `cloudflare` → `firecrawl`
+
+1. **raw** (Scrapling, 15s timeout) — stealth browser fetch, validates content quality
+2. **cloudflare** (Cloudflare Browser Rendering) — if raw content is blocked/truncated/empty
+3. **firecrawl** (Firecrawl API) — last resort if cloudflare also fails
+
+Override with `provider_order` param (comma-separated):
+
+```
+GET /api/v1/content?urls=https://example.com&provider_order=firecrawl,cloudflare
+GET /api/v1/content?urls=https://example.com&provider_order=raw
+```
 
 ## Test
 

@@ -37,56 +37,57 @@ def _fetch_with_scrapling(url: str) -> str:
     return html
 
 
-async def fetch_single_url(raw_url: str, no_style: bool = False) -> dict:
-    """Fetch a URL with fallback chain: scrapling -> cloudflare -> firecrawl."""
-    url = clean_url(raw_url)
-    loop = asyncio.get_event_loop()
+DEFAULT_PROVIDER_ORDER = ["raw", "cloudflare", "firecrawl"]
 
-    # Step 1: Try scrapling
+PROVIDER_API_KEYS = {
+    "cloudflare": CLOUDFLARE_API_KEY,
+    "firecrawl": FIRECRAWL_API_KEY,
+}
+
+
+async def _try_provider(provider: str, url: str, no_style: bool, loop) -> tuple[str | None, dict | None]:
+    """Try a single provider. Returns (html, scores) on success, (None, None) on failure."""
+    if provider != "raw" and not PROVIDER_API_KEYS.get(provider):
+        logger.info("[%s] skipped (no API key configured)", provider)
+        return None, None
+
     try:
-        logger.info("[scrapling] fetching %s", url)
-        html = await loop.run_in_executor(None, _fetch_with_scrapling, url)
+        logger.info("[%s] fetching %s", provider, url)
+
+        if provider == "raw":
+            html = await loop.run_in_executor(None, _fetch_with_scrapling, url)
+        elif provider == "cloudflare":
+            html = await fetch_with_cloudflare(url)
+        elif provider == "firecrawl":
+            html = await fetch_with_firecrawl(url)
+        else:
+            logger.warning("[%s] unknown provider", provider)
+            return None, None
+
         html = _post_process(html, url, no_style)
         validation = validate_content(html)
 
         if validation["valid"]:
-            logger.info("[scrapling] valid content for %s", url)
-            return _success(url, raw_url, html, "scrapling", validation["scores"])
+            logger.info("[%s] valid content for %s", provider, url)
+            return html, validation["scores"]
 
-        logger.warning("[scrapling] content rejected for %s: %s", url, validation["reason"])
+        logger.warning("[%s] content rejected for %s: %s", provider, url, validation["reason"])
     except Exception as error:
-        logger.warning("[scrapling] failed for %s: %s", url, error)
+        logger.warning("[%s] failed for %s: %s", provider, url, error)
 
-    # Step 2: Try Cloudflare
-    if CLOUDFLARE_API_KEY:
-        try:
-            logger.info("[cloudflare] fetching %s", url)
-            html = await fetch_with_cloudflare(url)
-            html = _post_process(html, url, no_style)
-            validation = validate_content(html)
+    return None, None
 
-            if validation["valid"]:
-                logger.info("[cloudflare] valid content for %s", url)
-                return _success(url, raw_url, html, "cloudflare", validation["scores"])
 
-            logger.warning("[cloudflare] content rejected for %s: %s", url, validation["reason"])
-        except Exception as error:
-            logger.warning("[cloudflare] failed for %s: %s", url, error)
-    else:
-        logger.info("[cloudflare] skipped (no API key configured)")
+async def fetch_single_url(raw_url: str, no_style: bool = False, provider_order: list[str] | None = None) -> dict:
+    """Fetch a URL trying providers in the given order."""
+    url = clean_url(raw_url)
+    providers = provider_order or DEFAULT_PROVIDER_ORDER
+    loop = asyncio.get_event_loop()
 
-    # Step 3: Try Firecrawl
-    if FIRECRAWL_API_KEY:
-        try:
-            logger.info("[firecrawl] fetching %s", url)
-            html = await fetch_with_firecrawl(url)
-            html = _post_process(html, url, no_style)
-            logger.info("[firecrawl] returning content for %s (last resort)", url)
-            return _success(url, raw_url, html, "firecrawl")
-        except Exception as error:
-            logger.warning("[firecrawl] failed for %s: %s", url, error)
-    else:
-        logger.info("[firecrawl] skipped (no API key configured)")
+    for provider in providers:
+        html, scores = await _try_provider(provider, url, no_style, loop)
+        if html is not None:
+            return _success(url, raw_url, html, provider, scores)
 
     return {
         "url": url,
@@ -111,7 +112,7 @@ def _success(url: str, raw_url: str, html: str, provider: str, scores: dict | No
     return result
 
 
-async def fetch_urls(urls: list[str], no_style: bool = False) -> list[dict]:
+async def fetch_urls(urls: list[str], no_style: bool = False, provider_order: list[str] | None = None) -> list[dict]:
     """Fetch multiple URLs concurrently with fallback chain."""
-    tasks = [fetch_single_url(url, no_style) for url in urls]
+    tasks = [fetch_single_url(url, no_style, provider_order) for url in urls]
     return await asyncio.gather(*tasks)
