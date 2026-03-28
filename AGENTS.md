@@ -73,3 +73,6 @@ Built-in via Scrapling's `disable_ads=True` parameter, which installs **uBlock O
 
 - `SCRAPI_API_TOKEN` — required, the bearer token for API auth
 - `SCRAPI_FETCH_TIMEOUT_MS` — optional, fetch timeout in ms (default: 30000)
+- FIRECRAWL_API_KEY=[redacted]
+- CLOUDFLARE_API_KEY=[redacted]
+- CLOUDFLARE_ACCOUNT_ID=[redacted]
