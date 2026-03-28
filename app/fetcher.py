@@ -37,7 +37,13 @@ def _get_scrapling_semaphore() -> asyncio.Semaphore:
     return _scrapling_semaphore
 
 
+def _sanitize_utf8(html: str) -> str:
+    """Re-encode to UTF-8, replacing any surrogate or invalid byte sequences."""
+    return html.encode("utf-8", errors="surrogatepass").decode("utf-8", errors="replace")
+
+
 def _post_process(html: str, url: str, no_style: bool, no_script: bool) -> str:
+    html = _sanitize_utf8(html)
     if no_script:
         html = strip_inline_scripts(html)
     html = strip_large_styles(html)
