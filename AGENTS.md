@@ -20,6 +20,13 @@ docker compose -f docker-compose.dev.yml up --build
 - `GET /api/v1/content?urls=https://example.com&urls=https://other.com`
 - Auth: Bearer token in `Authorization` header
 - Returns full HTML with all relative links converted to absolute
+- Each result includes a `provider` field: `"scrapling"`, `"cloudflare"`, or `"firecrawl"`
+
+### Fallback Chain
+
+1. **Scrapling** (15s timeout) — stealth browser fetch, validates content quality
+2. **Cloudflare Browser Rendering** — if scrapling content is blocked/truncated/empty
+3. **Firecrawl** — last resort if cloudflare also fails
 
 ## Test
 
