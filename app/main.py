@@ -1,14 +1,24 @@
 from fastapi import Depends, FastAPI, Query
+from fastapi.responses import PlainTextResponse
 
 from app.auth import verify_token
 from app.fetcher import fetch_urls
 
-app = FastAPI(title="Scrapi", version="1.0.0")
+app = FastAPI(docs_url=None, redoc_url=None, openapi_url=None)
 
 MAX_URLS_PER_REQUEST = 10
 
-
 VALID_PROVIDERS = {"raw", "cloudflare", "firecrawl"}
+
+
+@app.get("/", response_class=PlainTextResponse)
+async def root():
+    return "ok"
+
+
+@app.get("/health", response_class=PlainTextResponse)
+async def health():
+    return "ok"
 
 
 @app.get("/api/v1/content")

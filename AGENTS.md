@@ -17,10 +17,65 @@ docker compose -f docker-compose.dev.yml up --build
 
 ## API
 
-- `GET /api/v1/content?urls=https://example.com&urls=https://other.com`
-- Auth: Bearer token in `Authorization` header
-- Returns full HTML with all relative links converted to absolute
-- Each result includes a `provider` field: `"raw"`, `"cloudflare"`, or `"firecrawl"`
+### `GET /`
+
+Returns `ok` (plain text). No auth required.
+
+### `GET /health`
+
+Returns `ok` (plain text). No auth required. Used by Docker healthcheck.
+
+### `GET /api/v1/content`
+
+Fetch full HTML content from one or more URLs.
+
+**Auth:** Bearer token in `Authorization` header.
+
+**Query params:**
+
+| Param | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `urls` | string (repeated) | yes | — | URLs to fetch. Repeat for multiple: `urls=...&urls=...` |
+| `no_style` | bool | no | `false` | Remove all inline `style="..."` attributes |
+| `provider_order` | string | no | `raw,cloudflare,firecrawl` | Comma-separated provider order |
+
+**Max 10 URLs per request.**
+
+**Valid providers:** `raw`, `cloudflare`, `firecrawl`
+
+**Response:**
+
+```json
+{
+  "results": [
+    {
+      "url": "https://example.com/page?color=red",
+      "raw_url": "https://example.com/page?utm_source=google&color=red",
+      "status": "success",
+      "provider": "raw",
+      "html": "<!DOCTYPE html>...",
+      "scores": {
+        "html_length": 45230,
+        "has_body": true,
+        "blocked_matches": []
+      }
+    }
+  ]
+}
+```
+
+**Error response (per URL):**
+
+```json
+{
+  "url": "https://example.com",
+  "raw_url": "https://example.com",
+  "status": "error",
+  "provider": null,
+  "error": "All providers failed to fetch valid content",
+  "html": null
+}
+```
 
 ### URL Cleaning
 
@@ -33,9 +88,9 @@ Before fetching, all URLs are cleaned:
 
 Default order: `raw` → `cloudflare` → `firecrawl`
 
-1. **raw** (Scrapling, 15s timeout) — stealth browser fetch, validates content quality
-2. **cloudflare** (Cloudflare Browser Rendering) — if raw content is blocked/truncated/empty
-3. **firecrawl** (Firecrawl API) — last resort if cloudflare also fails
+1. **raw** (Scrapling, 15s timeout) — stealth browser fetch, validates content is not a block page
+2. **cloudflare** (Cloudflare Browser Rendering) — fallback if raw content is blocked/empty
+3. **firecrawl** (Firecrawl API) — last resort, returns content without validation
 
 Override with `provider_order` param (comma-separated):
 
@@ -43,6 +98,15 @@ Override with `provider_order` param (comma-separated):
 GET /api/v1/content?urls=https://example.com&provider_order=firecrawl,cloudflare
 GET /api/v1/content?urls=https://example.com&provider_order=raw
 ```
+
+### Content Validation
+
+Each provider (except the last in the chain) validates the fetched HTML:
+- HTML must be at least 256 bytes
+- Must contain a `<body>` tag
+- Must not match 2+ block/captcha indicators (access denied, captcha, cloudflare challenge, etc.)
+
+The last provider in the chain returns whatever it fetched, even if validation fails.
 
 ## Test
 
@@ -96,6 +160,6 @@ Built-in via Scrapling's `disable_ads=True` parameter, which installs **uBlock O
 
 - `SCRAPI_API_TOKEN` — required, the bearer token for API auth
 - `SCRAPI_FETCH_TIMEOUT_MS` — optional, fetch timeout in ms (default: 30000)
-- FIRECRAWL_API_KEY=[redacted]
-- CLOUDFLARE_API_KEY=[redacted]
-- CLOUDFLARE_ACCOUNT_ID=[redacted]
+- `FIRECRAWL_API_KEY` — Firecrawl API key
+- `CLOUDFLARE_API_KEY` — Cloudflare API key
+- `CLOUDFLARE_ACCOUNT_ID` — Cloudflare account ID
