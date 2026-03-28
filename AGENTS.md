@@ -65,6 +65,10 @@ This downloads the latest lists and regenerates `app/cookie_dismiss/cosmetic_fil
 
 **Key constraint:** The `page_action` callback must be sync and must `return page` — Scrapling reassigns the return value internally.
 
+## Ad/Tracker Blocking
+
+Built-in via Scrapling's `disable_ads=True` parameter, which installs **uBlock Origin** as a Firefox addon in the Camoufox browser. This blocks ads, trackers, and analytics at the network level — no custom domain lists needed.
+
 ## Environment Variables
 
 - `SCRAPI_API_TOKEN` — required, the bearer token for API auth

@@ -16,6 +16,7 @@ def fetch_single_url(url: str) -> dict:
             network_idle=True,
             timeout=FETCH_TIMEOUT_MS,
             page_action=dismiss_cookies,
+            disable_ads=True,
         )
 
         html = page.body if isinstance(page.body, str) else page.body.decode("utf-8", errors="replace")
