@@ -3,7 +3,7 @@ from contextlib import asynccontextmanager
 from fastapi import Depends, FastAPI, Query
 from fastapi.responses import PlainTextResponse
 
-from app import asset_fetcher, cloudflare_fetcher, firecrawl_fetcher
+from app import asset_fetcher, cloudflare_fetcher, firecrawl_fetcher, twitter_fetcher, youtube_fetcher
 from app.auth import verify_token
 from app.fetcher import fetch_urls
 
@@ -13,10 +13,14 @@ async def lifespan(app: FastAPI):
     asset_fetcher.init_client()
     cloudflare_fetcher.init_client()
     firecrawl_fetcher.init_client()
+    twitter_fetcher.init_client()
+    youtube_fetcher.init_client()
     yield
     await asset_fetcher.close_client()
     await cloudflare_fetcher.close_client()
     await firecrawl_fetcher.close_client()
+    await twitter_fetcher.close_client()
+    await youtube_fetcher.close_client()
 
 
 app = FastAPI(docs_url=None, redoc_url=None, openapi_url=None, lifespan=lifespan)

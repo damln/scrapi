@@ -2,7 +2,7 @@ import re
 from html.parser import HTMLParser
 from urllib.parse import urljoin
 
-from html_to_markdown import ConversionOptions, convert
+from markdownify import markdownify
 
 
 def make_links_absolute(html: str, base_url: str) -> str:
@@ -206,18 +206,14 @@ def extract_head_meta(html: str) -> dict:
 
 MAX_HTML_SIZE_FOR_MARKDOWN = 5_000_000
 
-_markdown_options = ConversionOptions(
-    heading_style="atx",
-    code_block_style="fenced",
-)
-
 
 def html_to_markdown(html: str) -> str | None:
     """Convert HTML to Markdown. Returns None if HTML is too large or conversion fails."""
     if len(html.encode("utf-8", errors="replace")) > MAX_HTML_SIZE_FOR_MARKDOWN:
         return None
     try:
-        return convert(html, _markdown_options).strip()
+        result = markdownify(html, heading_style="ATX", code_language="", strip=["script", "style", "svg"])
+        return result.strip() if result else None
     except Exception:
         return None
 

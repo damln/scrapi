@@ -11,7 +11,9 @@ from app.content_validator import validate_content
 from app.cookie_dismiss import dismiss_cookies
 from app.firecrawl_fetcher import fetch_with_firecrawl
 from app.html_rewriter import extract_head_meta, html_to_markdown, make_links_absolute, strip_inline_scripts, strip_inline_styles, strip_large_styles
+from app.twitter_fetcher import fetch_twitter, is_twitter_url
 from app.url_cleaner import clean_url
+from app.youtube_fetcher import fetch_youtube, is_youtube_url
 
 logger = logging.getLogger(__name__)
 
@@ -164,6 +166,12 @@ async def _try_provider(
 async def fetch_single_url(raw_url: str, no_style: bool = False, no_script: bool = False, provider_order: list[str] | None = None, scroll_full: bool = False) -> dict:
     """Fetch a URL trying providers in the given order."""
     url = clean_url(raw_url)
+
+    # Special-case Twitter and YouTube — use dedicated API fetchers
+    special_result = await _try_special_fetcher(url, raw_url)
+    if special_result is not None:
+        return special_result
+
     providers = provider_order or DEFAULT_PROVIDER_ORDER
     loop = asyncio.get_event_loop()
 
@@ -181,6 +189,23 @@ async def fetch_single_url(raw_url: str, no_style: bool = False, no_script: bool
         "error": "All providers failed to fetch valid content",
         "html": None,
     }
+
+
+async def _try_special_fetcher(url: str, raw_url: str) -> dict | None:
+    """Try Twitter or YouTube fetchers for known URL patterns."""
+    result = None
+    if is_twitter_url(url):
+        result = await fetch_twitter(url)
+    elif is_youtube_url(url):
+        result = await fetch_youtube(url)
+
+    if result is None:
+        return None
+
+    html = result["html"]
+    head_meta = extract_head_meta(html)
+    markdown = html_to_markdown(html)
+    return _success(url, raw_url, html, result["provider"], None, head_meta, markdown)
 
 
 def _success(url: str, raw_url: str, html: str, provider: str, scores: dict | None = None, head_meta: dict | None = None, markdown: str | None = None) -> dict:

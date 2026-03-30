@@ -3,4 +3,7 @@ uvicorn==0.34.2
 scrapling[fetchers]==0.2.99
 httpx==0.28.1
 Pillow==11.1.0
-html-to-markdown==2.30.0
+markdownify==0.14.1
+pytest==8.3.5
+pytest-asyncio==0.25.3
+respx==0.22.0
