@@ -2,6 +2,7 @@ name: scrapi
 
 services:
   app:
+    image: scrapi-app:latest
     build:
       context: .
       dockerfile: Dockerfile
