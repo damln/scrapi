@@ -60,8 +60,88 @@ OEMBED_RESPONSE = {
 }
 
 
+# ---------------------------------------------------------------------------
+# fxtwitter — head_meta
+# ---------------------------------------------------------------------------
+
+
 @respx.mock
-def test_twitter_fxtwitter_success(client):
+def test_fxtwitter_head_meta_title(client):
+    respx.get("https://api.fxtwitter.com/testuser/status/123456").mock(
+        return_value=Response(200, json=FXTWITTER_RESPONSE)
+    )
+
+    resp = client.get(
+        "/api/v1/content",
+        params={"urls": "https://x.com/testuser/status/123456"},
+        headers=AUTH_HEADER,
+    )
+
+    result = resp.json()["results"][0]
+    assert result["head_meta"]["title"] == "Test User: Hello from Twitter! Check this out."
+    assert result["head_meta"]["og:title"] == "Test User: Hello from Twitter! Check this out."
+
+
+@respx.mock
+def test_fxtwitter_head_meta_description(client):
+    respx.get("https://api.fxtwitter.com/testuser/status/123456").mock(
+        return_value=Response(200, json=FXTWITTER_RESPONSE)
+    )
+
+    resp = client.get(
+        "/api/v1/content",
+        params={"urls": "https://x.com/testuser/status/123456"},
+        headers=AUTH_HEADER,
+    )
+
+    result = resp.json()["results"][0]
+    assert result["head_meta"]["description"] == "Hello from Twitter! Check this out."
+    assert result["head_meta"]["og:description"] == "Hello from Twitter! Check this out."
+
+
+@respx.mock
+def test_fxtwitter_head_meta_author(client):
+    respx.get("https://api.fxtwitter.com/testuser/status/123456").mock(
+        return_value=Response(200, json=FXTWITTER_RESPONSE)
+    )
+
+    resp = client.get(
+        "/api/v1/content",
+        params={"urls": "https://x.com/testuser/status/123456"},
+        headers=AUTH_HEADER,
+    )
+
+    result = resp.json()["results"][0]
+    assert result["head_meta"]["author"] == "Test User"
+    assert result["head_meta"]["twitter:creator"] == "@testuser"
+
+
+@respx.mock
+def test_fxtwitter_head_meta_og_fields(client):
+    respx.get("https://api.fxtwitter.com/testuser/status/123456").mock(
+        return_value=Response(200, json=FXTWITTER_RESPONSE)
+    )
+
+    resp = client.get(
+        "/api/v1/content",
+        params={"urls": "https://x.com/testuser/status/123456"},
+        headers=AUTH_HEADER,
+    )
+
+    meta = resp.json()["results"][0]["head_meta"]
+    assert meta["og:site_name"] == "X (formerly Twitter)"
+    assert meta["og:type"] == "article"
+    assert meta["og:url"] == "https://x.com/testuser/status/123456"
+    assert meta["og:image"] == "https://pbs.twimg.com/media/photo1.jpg"
+
+
+# ---------------------------------------------------------------------------
+# fxtwitter — html + markdown + provider
+# ---------------------------------------------------------------------------
+
+
+@respx.mock
+def test_fxtwitter_success(client):
     respx.get("https://api.fxtwitter.com/testuser/status/123456").mock(
         return_value=Response(200, json=FXTWITTER_RESPONSE)
     )
@@ -73,86 +153,17 @@ def test_twitter_fxtwitter_success(client):
     )
 
     assert resp.status_code == 200
-    data = resp.json()
-    result = data["results"][0]
+    result = resp.json()["results"][0]
     assert result["status"] == "success"
     assert result["provider"] == "twitter"
     assert "Test User" in result["html"]
     assert "Hello from Twitter" in result["html"]
-    assert result["head_meta"]["title"] == "Test User: Hello from Twitter! Check this out."
-    assert result["head_meta"]["og:type"] == "article"
     assert "markdown" in result
     assert "Hello from Twitter" in result["markdown"]
 
 
 @respx.mock
-def test_twitter_article_content(client):
-    respx.get("https://api.fxtwitter.com/writer/status/789").mock(
-        return_value=Response(200, json=FXTWITTER_ARTICLE_RESPONSE)
-    )
-
-    resp = client.get(
-        "/api/v1/content",
-        params={"urls": "https://x.com/writer/status/789"},
-        headers=AUTH_HEADER,
-    )
-
-    assert resp.status_code == 200
-    result = resp.json()["results"][0]
-    assert result["status"] == "success"
-    assert "<article>" in result["html"]
-    assert "<h1>Introduction</h1>" in result["html"]
-    assert "This is the article body." in result["html"]
-    assert result["head_meta"]["og:image"] == "https://pbs.twimg.com/cover.jpg"
-
-
-@respx.mock
-def test_twitter_fxtwitter_fails_falls_back_to_oembed(client):
-    respx.get("https://api.fxtwitter.com/fallback/status/999").mock(
-        return_value=Response(500)
-    )
-    respx.get("https://publish.twitter.com/oembed").mock(
-        return_value=Response(200, json=OEMBED_RESPONSE)
-    )
-
-    resp = client.get(
-        "/api/v1/content",
-        params={"urls": "https://x.com/fallback/status/999"},
-        headers=AUTH_HEADER,
-    )
-
-    assert resp.status_code == 200
-    result = resp.json()["results"][0]
-    assert result["status"] == "success"
-    assert result["provider"] == "twitter"
-    assert "OEmbed Author" in result["html"]
-    assert "Fallback tweet text here" in result["html"]
-
-
-@respx.mock
-def test_twitter_both_strategies_fail_falls_through_to_providers(client):
-    respx.get("https://api.fxtwitter.com/nobody/status/000").mock(
-        return_value=Response(404)
-    )
-    respx.get("https://publish.twitter.com/oembed").mock(
-        return_value=Response(404)
-    )
-    # After twitter fetcher fails, falls through to the normal provider chain
-    resp = client.get(
-        "/api/v1/content",
-        params={"urls": "https://x.com/nobody/status/000"},
-        headers=AUTH_HEADER,
-    )
-
-    assert resp.status_code == 200
-    result = resp.json()["results"][0]
-    # Provider chain may succeed (real browser) or fail — just check it's not "twitter" provider
-    if result["status"] == "success":
-        assert result["provider"] != "twitter"
-
-
-@respx.mock
-def test_twitter_media_images(client):
+def test_fxtwitter_media_images(client):
     respx.get("https://api.fxtwitter.com/testuser/status/123456").mock(
         return_value=Response(200, json=FXTWITTER_RESPONSE)
     )
@@ -168,7 +179,7 @@ def test_twitter_media_images(client):
 
 
 @respx.mock
-def test_twitter_stats(client):
+def test_fxtwitter_stats(client):
     respx.get("https://api.fxtwitter.com/testuser/status/123456").mock(
         return_value=Response(200, json=FXTWITTER_RESPONSE)
     )
@@ -183,3 +194,199 @@ def test_twitter_stats(client):
     assert "1500 views" in result["html"]
     assert "42 likes" in result["html"]
     assert "7 retweets" in result["html"]
+
+
+# ---------------------------------------------------------------------------
+# fxtwitter — article content
+# ---------------------------------------------------------------------------
+
+
+@respx.mock
+def test_fxtwitter_article_html(client):
+    respx.get("https://api.fxtwitter.com/writer/status/789").mock(
+        return_value=Response(200, json=FXTWITTER_ARTICLE_RESPONSE)
+    )
+
+    resp = client.get(
+        "/api/v1/content",
+        params={"urls": "https://x.com/writer/status/789"},
+        headers=AUTH_HEADER,
+    )
+
+    result = resp.json()["results"][0]
+    assert result["status"] == "success"
+    assert "<article>" in result["html"]
+    assert "<h1>Introduction</h1>" in result["html"]
+    assert "This is the article body." in result["html"]
+
+
+@respx.mock
+def test_fxtwitter_article_head_meta(client):
+    respx.get("https://api.fxtwitter.com/writer/status/789").mock(
+        return_value=Response(200, json=FXTWITTER_ARTICLE_RESPONSE)
+    )
+
+    resp = client.get(
+        "/api/v1/content",
+        params={"urls": "https://x.com/writer/status/789"},
+        headers=AUTH_HEADER,
+    )
+
+    meta = resp.json()["results"][0]["head_meta"]
+    assert meta["og:image"] == "https://pbs.twimg.com/cover.jpg"
+    assert "Writer" in meta["title"]
+    assert "My Long Article Title" in meta["title"]
+
+
+# ---------------------------------------------------------------------------
+# oEmbed fallback — head_meta
+# ---------------------------------------------------------------------------
+
+
+@respx.mock
+def test_oembed_head_meta_title(client):
+    respx.get("https://api.fxtwitter.com/fallback/status/999").mock(
+        return_value=Response(500)
+    )
+    respx.get("https://publish.twitter.com/oembed").mock(
+        return_value=Response(200, json=OEMBED_RESPONSE)
+    )
+
+    resp = client.get(
+        "/api/v1/content",
+        params={"urls": "https://x.com/fallback/status/999"},
+        headers=AUTH_HEADER,
+    )
+
+    meta = resp.json()["results"][0]["head_meta"]
+    assert meta["title"] == "OEmbed Author: Fallback tweet text here"
+    assert meta["og:title"] == "OEmbed Author: Fallback tweet text here"
+
+
+@respx.mock
+def test_oembed_head_meta_description(client):
+    respx.get("https://api.fxtwitter.com/fallback/status/999").mock(
+        return_value=Response(500)
+    )
+    respx.get("https://publish.twitter.com/oembed").mock(
+        return_value=Response(200, json=OEMBED_RESPONSE)
+    )
+
+    resp = client.get(
+        "/api/v1/content",
+        params={"urls": "https://x.com/fallback/status/999"},
+        headers=AUTH_HEADER,
+    )
+
+    meta = resp.json()["results"][0]["head_meta"]
+    assert meta["description"] == "Fallback tweet text here"
+    assert meta["og:description"] == "Fallback tweet text here"
+
+
+@respx.mock
+def test_oembed_head_meta_author(client):
+    respx.get("https://api.fxtwitter.com/fallback/status/999").mock(
+        return_value=Response(500)
+    )
+    respx.get("https://publish.twitter.com/oembed").mock(
+        return_value=Response(200, json=OEMBED_RESPONSE)
+    )
+
+    resp = client.get(
+        "/api/v1/content",
+        params={"urls": "https://x.com/fallback/status/999"},
+        headers=AUTH_HEADER,
+    )
+
+    meta = resp.json()["results"][0]["head_meta"]
+    assert meta["author"] == "OEmbed Author"
+    assert meta["og:site_name"] == "X (formerly Twitter)"
+
+
+@respx.mock
+def test_oembed_html_and_provider(client):
+    respx.get("https://api.fxtwitter.com/fallback/status/999").mock(
+        return_value=Response(500)
+    )
+    respx.get("https://publish.twitter.com/oembed").mock(
+        return_value=Response(200, json=OEMBED_RESPONSE)
+    )
+
+    resp = client.get(
+        "/api/v1/content",
+        params={"urls": "https://x.com/fallback/status/999"},
+        headers=AUTH_HEADER,
+    )
+
+    result = resp.json()["results"][0]
+    assert result["status"] == "success"
+    assert result["provider"] == "twitter"
+    assert "OEmbed Author" in result["html"]
+    assert "Fallback tweet text here" in result["html"]
+    assert "markdown" in result
+
+
+# ---------------------------------------------------------------------------
+# Fallback to provider chain
+# ---------------------------------------------------------------------------
+
+
+@respx.mock
+def test_both_strategies_fail_falls_through_to_providers(client):
+    respx.get("https://api.fxtwitter.com/nobody/status/000").mock(
+        return_value=Response(404)
+    )
+    respx.get("https://publish.twitter.com/oembed").mock(
+        return_value=Response(404)
+    )
+
+    resp = client.get(
+        "/api/v1/content",
+        params={"urls": "https://x.com/nobody/status/000"},
+        headers=AUTH_HEADER,
+    )
+
+    assert resp.status_code == 200
+    result = resp.json()["results"][0]
+    # Provider chain may succeed (real browser) or fail — just check it's not "twitter" provider
+    if result["status"] == "success":
+        assert result["provider"] != "twitter"
+
+
+# ---------------------------------------------------------------------------
+# URL variants
+# ---------------------------------------------------------------------------
+
+
+@respx.mock
+def test_twitter_com_domain(client):
+    respx.get("https://api.fxtwitter.com/user/status/111").mock(
+        return_value=Response(200, json=FXTWITTER_RESPONSE)
+    )
+
+    resp = client.get(
+        "/api/v1/content",
+        params={"urls": "https://twitter.com/user/status/111"},
+        headers=AUTH_HEADER,
+    )
+
+    result = resp.json()["results"][0]
+    assert result["status"] == "success"
+    assert result["provider"] == "twitter"
+
+
+@respx.mock
+def test_www_x_com_domain(client):
+    respx.get("https://api.fxtwitter.com/user/status/222").mock(
+        return_value=Response(200, json=FXTWITTER_RESPONSE)
+    )
+
+    resp = client.get(
+        "/api/v1/content",
+        params={"urls": "https://www.x.com/user/status/222"},
+        headers=AUTH_HEADER,
+    )
+
+    result = resp.json()["results"][0]
+    assert result["status"] == "success"
+    assert result["provider"] == "twitter"

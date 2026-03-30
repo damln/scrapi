@@ -130,13 +130,17 @@ def _build_fxtwitter_result(url: str, tweet: dict) -> dict:
     if stats_parts:
         body_parts.append(f'<p class="tweet-stats">{" · ".join(stats_parts)}</p>')
 
+    description = tweet_text if tweet_text and not _just_tco_link(tweet_text) else ""
+
     html = f"""<html>
 <head>
 <meta property="og:site_name" content="X (formerly Twitter)">
 <meta property="og:type" content="article">
 <meta property="og:url" content="{html_escape(url)}">
 <meta property="og:title" content="{html_escape(title)}">
+<meta property="og:description" content="{html_escape(description)}">
 <meta property="og:image" content="{html_escape(og_image)}">
+<meta name="description" content="{html_escape(description)}">
 <meta name="author" content="{html_escape(author)}">
 <meta name="twitter:creator" content="@{html_escape(screen_name)}">
 <title>{html_escape(title)}</title>
@@ -178,6 +182,9 @@ async def _fetch_oembed(url: str) -> dict | None:
 <meta property="og:site_name" content="X (formerly Twitter)">
 <meta property="og:type" content="article">
 <meta property="og:url" content="{html_escape(url)}">
+<meta property="og:title" content="{html_escape(title)}">
+<meta property="og:description" content="{html_escape(tweet_text)}">
+<meta name="description" content="{html_escape(tweet_text)}">
 <meta name="author" content="{html_escape(author)}">
 <title>{html_escape(title)}</title>
 </head>

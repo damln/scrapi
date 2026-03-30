@@ -207,12 +207,19 @@ def extract_head_meta(html: str) -> dict:
 MAX_HTML_SIZE_FOR_MARKDOWN = 5_000_000
 
 
+_STRIP_TAGS_RE = re.compile(
+    r"<(script|style|svg)[\s>][\s\S]*?</\1>",
+    re.IGNORECASE,
+)
+
+
 def html_to_markdown(html: str) -> str | None:
     """Convert HTML to Markdown. Returns None if HTML is too large or conversion fails."""
     if len(html.encode("utf-8", errors="replace")) > MAX_HTML_SIZE_FOR_MARKDOWN:
         return None
     try:
-        result = markdownify(html, heading_style="ATX", code_language="", strip=["script", "style", "svg"])
+        cleaned = _STRIP_TAGS_RE.sub("", html)
+        result = markdownify(cleaned, heading_style="ATX", code_language="")
         return result.strip() if result else None
     except Exception:
         return None
