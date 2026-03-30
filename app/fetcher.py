@@ -10,7 +10,7 @@ from app.config import CLOUDFLARE_API_KEY, FIRECRAWL_API_KEY, SCRAPLING_MAX_CONC
 from app.content_validator import validate_content
 from app.cookie_dismiss import dismiss_cookies
 from app.firecrawl_fetcher import fetch_with_firecrawl
-from app.html_rewriter import extract_head_meta, make_links_absolute, strip_inline_scripts, strip_inline_styles, strip_large_styles
+from app.html_rewriter import extract_head_meta, html_to_markdown, make_links_absolute, strip_inline_scripts, strip_inline_styles, strip_large_styles
 from app.url_cleaner import clean_url
 
 logger = logging.getLogger(__name__)
@@ -42,7 +42,7 @@ def _sanitize_utf8(html: str) -> str:
     return html.encode("utf-8", errors="surrogatepass").decode("utf-8", errors="replace")
 
 
-def _post_process(html: str, url: str, no_style: bool, no_script: bool) -> tuple[str, dict]:
+def _post_process(html: str, url: str, no_style: bool, no_script: bool) -> tuple[str, dict, str | None]:
     html = _sanitize_utf8(html)
     head_meta = extract_head_meta(html)
     if no_script:
@@ -51,7 +51,8 @@ def _post_process(html: str, url: str, no_style: bool, no_script: bool) -> tuple
     if no_style:
         html = strip_inline_styles(html)
     html = make_links_absolute(html, url)
-    return html, head_meta
+    markdown = html_to_markdown(html)
+    return html, head_meta, markdown
 
 
 def scroll_full_page(page):
@@ -108,15 +109,15 @@ PROVIDER_API_KEYS = {
 
 async def _try_provider(
     provider: str, url: str, no_style: bool, no_script: bool, loop, is_last: bool = False, scroll_full: bool = False,
-) -> tuple[str | None, dict | None, dict | None]:
-    """Try a single provider. Returns (html, scores, head_meta) on success, (None, None, None) on failure.
+) -> tuple[str | None, dict | None, dict | None, str | None]:
+    """Try a single provider. Returns (html, scores, head_meta, markdown) on success, (None, None, None, None) on failure.
 
     When is_last=True, skip content validation and return whatever HTML was fetched.
     The raw provider gets one retry on exception (transient browser failures).
     """
     if provider != "raw" and not PROVIDER_API_KEYS.get(provider):
         logger.info("[%s] skipped (no API key configured)", provider)
-        return None, None, None
+        return None, None, None, None
 
     attempts = SCRAPLING_RETRY_ATTEMPTS if provider == "raw" else 1
 
@@ -135,21 +136,21 @@ async def _try_provider(
                 html = await fetch_with_firecrawl(url)
             else:
                 logger.warning("[%s] unknown provider", provider)
-                return None, None, None
+                return None, None, None, None
 
-            html, head_meta = _post_process(html, url, no_style, no_script)
+            html, head_meta, markdown = _post_process(html, url, no_style, no_script)
             validation = validate_content(html)
 
             if validation["valid"]:
                 logger.info("[%s] valid content for %s", provider, url)
-                return html, validation["scores"], head_meta
+                return html, validation["scores"], head_meta, markdown
 
             if is_last:
                 logger.warning("[%s] content weak for %s: %s (last provider, returning anyway)", provider, url, validation["reason"])
-                return html, validation["scores"], head_meta
+                return html, validation["scores"], head_meta, markdown
 
             logger.warning("[%s] content rejected for %s: %s", provider, url, validation["reason"])
-            return None, None, None
+            return None, None, None, None
         except Exception as error:
             if attempt < attempts - 1:
                 logger.warning("[%s] attempt %d failed for %s: %s — retrying", provider, attempt + 1, url, error)
@@ -157,7 +158,7 @@ async def _try_provider(
                 continue
             logger.warning("[%s] failed for %s: %s", provider, url, error)
 
-    return None, None, None
+    return None, None, None, None
 
 
 async def fetch_single_url(raw_url: str, no_style: bool = False, no_script: bool = False, provider_order: list[str] | None = None, scroll_full: bool = False) -> dict:
@@ -168,9 +169,9 @@ async def fetch_single_url(raw_url: str, no_style: bool = False, no_script: bool
 
     for i, provider in enumerate(providers):
         is_last = i == len(providers) - 1
-        html, scores, head_meta = await _try_provider(provider, url, no_style, no_script, loop, is_last, scroll_full=scroll_full)
+        html, scores, head_meta, markdown = await _try_provider(provider, url, no_style, no_script, loop, is_last, scroll_full=scroll_full)
         if html is not None:
-            return _success(url, raw_url, html, provider, scores, head_meta)
+            return _success(url, raw_url, html, provider, scores, head_meta, markdown)
 
     return {
         "url": url,
@@ -182,7 +183,7 @@ async def fetch_single_url(raw_url: str, no_style: bool = False, no_script: bool
     }
 
 
-def _success(url: str, raw_url: str, html: str, provider: str, scores: dict | None = None, head_meta: dict | None = None) -> dict:
+def _success(url: str, raw_url: str, html: str, provider: str, scores: dict | None = None, head_meta: dict | None = None, markdown: str | None = None) -> dict:
     result = {
         "url": url,
         "raw_url": raw_url,
@@ -194,6 +195,8 @@ def _success(url: str, raw_url: str, html: str, provider: str, scores: dict | No
         result["scores"] = scores
     if head_meta:
         result["head_meta"] = head_meta
+    if markdown:
+        result["markdown"] = markdown
     return result
 
 

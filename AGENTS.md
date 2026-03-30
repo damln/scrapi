@@ -67,7 +67,8 @@ Fetch full HTML content from one or more URLs.
         "og:title": "Example Page",
         "og:image": "https://example.com/image.png",
         "canonical": "https://example.com/page"
-      }
+      },
+      "markdown": "# Example Page\n\nThis is the page content..."
     }
   ]
 }

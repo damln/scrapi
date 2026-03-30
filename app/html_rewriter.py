@@ -2,6 +2,8 @@ import re
 from html.parser import HTMLParser
 from urllib.parse import urljoin
 
+from html_to_markdown import ConversionOptions, convert
+
 
 def make_links_absolute(html: str, base_url: str) -> str:
     """Convert all relative URLs in HTML to absolute URLs."""
@@ -200,6 +202,24 @@ def extract_head_meta(html: str) -> dict:
     except Exception:
         pass
     return parser.result
+
+
+MAX_HTML_SIZE_FOR_MARKDOWN = 5_000_000
+
+_markdown_options = ConversionOptions(
+    heading_style="atx",
+    code_block_style="fenced",
+)
+
+
+def html_to_markdown(html: str) -> str | None:
+    """Convert HTML to Markdown. Returns None if HTML is too large or conversion fails."""
+    if len(html.encode("utf-8", errors="replace")) > MAX_HTML_SIZE_FOR_MARKDOWN:
+        return None
+    try:
+        return convert(html, _markdown_options).strip()
+    except Exception:
+        return None
 
 
 def _is_relative(url: str) -> bool:
