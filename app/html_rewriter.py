@@ -1,4 +1,5 @@
 import re
+from html.parser import HTMLParser
 from urllib.parse import urljoin
 
 
@@ -102,6 +103,103 @@ def strip_large_styles(html: str) -> str:
 def strip_inline_styles(html: str) -> str:
     """Remove all inline style="..." attributes from HTML tags."""
     return re.sub(r'\s+style\s*=\s*"[^"]*"', "", html, flags=re.IGNORECASE)
+
+
+MAX_HEAD_VALUE_LENGTH = 400
+
+ALLOWED_HEAD_KEYS = {
+    "title",
+    "description",
+    "keywords",
+    "author",
+    "canonical",
+    "robots",
+    "generator",
+    "theme-color",
+    "application-name",
+    "apple-itunes-app",
+    "google-play-app",
+    "og:title",
+    "og:description",
+    "og:image",
+    "og:url",
+    "og:site_name",
+    "og:type",
+    "og:image:width",
+    "og:image:height",
+    "og:image:alt",
+    "og:locale",
+    "twitter:card",
+    "twitter:site",
+    "twitter:creator",
+    "article:published_time",
+    "article:modified_time",
+    "article:author",
+    "article:section",
+    "al:ios:url",
+    "al:ios:app_name",
+}
+
+
+class _HeadMetaParser(HTMLParser):
+    """Extract metadata from <head>: title, meta name/property, link canonical."""
+
+    def __init__(self):
+        super().__init__()
+        self.result = {}
+        self._in_head = False
+        self._in_title = False
+        self._title_parts = []
+
+    def handle_starttag(self, tag, attrs):
+        tag_lower = tag.lower()
+        if tag_lower == "head":
+            self._in_head = True
+            return
+        if not self._in_head:
+            return
+
+        if tag_lower == "title":
+            self._in_title = True
+            self._title_parts = []
+            return
+
+        attrs_dict = dict(attrs)
+
+        if tag_lower == "meta":
+            key = attrs_dict.get("name") or attrs_dict.get("property")
+            content = attrs_dict.get("content")
+            if key and content and key in ALLOWED_HEAD_KEYS and len(content) <= MAX_HEAD_VALUE_LENGTH:
+                self.result[key] = content
+
+        if tag_lower == "link" and attrs_dict.get("rel") == "canonical":
+            href = attrs_dict.get("href", "").strip()
+            if href and len(href) <= MAX_HEAD_VALUE_LENGTH:
+                self.result["canonical"] = href
+
+    def handle_endtag(self, tag):
+        tag_lower = tag.lower()
+        if tag_lower == "head":
+            self._in_head = False
+        if tag_lower == "title" and self._in_title:
+            self._in_title = False
+            title = "".join(self._title_parts).strip()
+            if title and len(title) <= MAX_HEAD_VALUE_LENGTH:
+                self.result["title"] = title
+
+    def handle_data(self, data):
+        if self._in_title:
+            self._title_parts.append(data)
+
+
+def extract_head_meta(html: str) -> dict:
+    """Extract key/value metadata from HTML <head>."""
+    parser = _HeadMetaParser()
+    try:
+        parser.feed(html)
+    except Exception:
+        pass
+    return parser.result
 
 
 def _is_relative(url: str) -> bool:

@@ -60,6 +60,13 @@ Fetch full HTML content from one or more URLs.
         "html_length": 45230,
         "has_body": true,
         "blocked_matches": []
+      },
+      "head_meta": {
+        "title": "Example Page",
+        "description": "An example page description",
+        "og:title": "Example Page",
+        "og:image": "https://example.com/image.png",
+        "canonical": "https://example.com/page"
       }
     }
   ]
