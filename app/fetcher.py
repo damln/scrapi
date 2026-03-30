@@ -86,8 +86,26 @@ def dismiss_cookies_and_scroll(page):
     return page
 
 
-def _fetch_with_scrapling(url: str, scroll_full: bool = False) -> str:
-    """Fetch using StealthyFetcher. Raises on failure."""
+def _extract_http_metadata(page) -> dict:
+    """Extract HTTP status, headers, and redirect history from a Scrapling Response."""
+    history = []
+    for entry in getattr(page, "history", []) or []:
+        h = {"status": getattr(entry, "status", None), "url": getattr(entry, "url", None)}
+        entry_headers = getattr(entry, "headers", None)
+        if entry_headers:
+            h["headers"] = dict(entry_headers)
+        history.append(h)
+
+    headers = getattr(page, "headers", None)
+    return {
+        "status": getattr(page, "status", None),
+        "headers": dict(headers) if headers else None,
+        "redirect_history": history if history else None,
+    }
+
+
+def _fetch_with_scrapling(url: str, scroll_full: bool = False) -> tuple[str, dict]:
+    """Fetch using StealthyFetcher. Raises on failure. Returns (html, http_metadata)."""
     action = dismiss_cookies_and_scroll if scroll_full else dismiss_cookies
     page = StealthyFetcher.fetch(
         url,
@@ -98,7 +116,8 @@ def _fetch_with_scrapling(url: str, scroll_full: bool = False) -> str:
         disable_ads=True,
     )
     html = page.body if isinstance(page.body, str) else page.body.decode("utf-8", errors="replace")
-    return html
+    http_metadata = _extract_http_metadata(page)
+    return html, http_metadata
 
 
 DEFAULT_PROVIDER_ORDER = ["raw", "cloudflare", "firecrawl"]
@@ -111,48 +130,49 @@ PROVIDER_API_KEYS = {
 
 async def _try_provider(
     provider: str, url: str, no_style: bool, no_script: bool, loop, is_last: bool = False, scroll_full: bool = False,
-) -> tuple[str | None, dict | None, dict | None, str | None]:
-    """Try a single provider. Returns (html, scores, head_meta, markdown) on success, (None, None, None, None) on failure.
+) -> tuple[str | None, dict | None, dict | None, str | None, dict | None]:
+    """Try a single provider. Returns (html, scores, head_meta, markdown, http_metadata) on success, (None, None, None, None, None) on failure.
 
     When is_last=True, skip content validation and return whatever HTML was fetched.
     The raw provider gets one retry on exception (transient browser failures).
     """
     if provider != "raw" and not PROVIDER_API_KEYS.get(provider):
         logger.info("[%s] skipped (no API key configured)", provider)
-        return None, None, None, None
+        return None, None, None, None, None
 
     attempts = SCRAPLING_RETRY_ATTEMPTS if provider == "raw" else 1
 
     for attempt in range(attempts):
         try:
             logger.info("[%s] fetching %s", provider, url)
+            http_metadata = None
 
             if provider == "raw":
                 sem = _get_scrapling_semaphore()
                 fn = functools.partial(_fetch_with_scrapling, url, scroll_full=scroll_full)
                 async with sem:
-                    html = await loop.run_in_executor(_thread_pool, fn)
+                    html, http_metadata = await loop.run_in_executor(_thread_pool, fn)
             elif provider == "cloudflare":
                 html = await fetch_with_cloudflare(url, scroll_full=scroll_full)
             elif provider == "firecrawl":
                 html = await fetch_with_firecrawl(url)
             else:
                 logger.warning("[%s] unknown provider", provider)
-                return None, None, None, None
+                return None, None, None, None, None
 
             html, head_meta, markdown = _post_process(html, url, no_style, no_script)
             validation = validate_content(html)
 
             if validation["valid"]:
                 logger.info("[%s] valid content for %s", provider, url)
-                return html, validation["scores"], head_meta, markdown
+                return html, validation["scores"], head_meta, markdown, http_metadata
 
             if is_last:
                 logger.warning("[%s] content weak for %s: %s (last provider, returning anyway)", provider, url, validation["reason"])
-                return html, validation["scores"], head_meta, markdown
+                return html, validation["scores"], head_meta, markdown, http_metadata
 
             logger.warning("[%s] content rejected for %s: %s", provider, url, validation["reason"])
-            return None, None, None, None
+            return None, None, None, None, None
         except Exception as error:
             if attempt < attempts - 1:
                 logger.warning("[%s] attempt %d failed for %s: %s — retrying", provider, attempt + 1, url, error)
@@ -160,7 +180,7 @@ async def _try_provider(
                 continue
             logger.warning("[%s] failed for %s: %s", provider, url, error)
 
-    return None, None, None, None
+    return None, None, None, None, None
 
 
 async def fetch_single_url(raw_url: str, no_style: bool = False, no_script: bool = False, provider_order: list[str] | None = None, scroll_full: bool = False) -> dict:
@@ -177,9 +197,9 @@ async def fetch_single_url(raw_url: str, no_style: bool = False, no_script: bool
 
     for i, provider in enumerate(providers):
         is_last = i == len(providers) - 1
-        html, scores, head_meta, markdown = await _try_provider(provider, url, no_style, no_script, loop, is_last, scroll_full=scroll_full)
+        html, scores, head_meta, markdown, http_metadata = await _try_provider(provider, url, no_style, no_script, loop, is_last, scroll_full=scroll_full)
         if html is not None:
-            return _success(url, raw_url, html, provider, scores, head_meta, markdown)
+            return _success(url, raw_url, html, provider, scores, head_meta, markdown, http_metadata)
 
     return {
         "url": url,
@@ -208,7 +228,7 @@ async def _try_special_fetcher(url: str, raw_url: str) -> dict | None:
     return _success(url, raw_url, html, result["provider"], None, head_meta, markdown)
 
 
-def _success(url: str, raw_url: str, html: str, provider: str, scores: dict | None = None, head_meta: dict | None = None, markdown: str | None = None) -> dict:
+def _success(url: str, raw_url: str, html: str, provider: str, scores: dict | None = None, head_meta: dict | None = None, markdown: str | None = None, http_metadata: dict | None = None) -> dict:
     result = {
         "url": url,
         "raw_url": raw_url,
@@ -222,6 +242,8 @@ def _success(url: str, raw_url: str, html: str, provider: str, scores: dict | No
         result["head_meta"] = head_meta
     if markdown:
         result["markdown"] = markdown
+    if http_metadata:
+        result["http"] = http_metadata
     return result
 
 

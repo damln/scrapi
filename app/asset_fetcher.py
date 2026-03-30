@@ -101,7 +101,24 @@ def _process_image(
     return processed, new_content_type, target_format, w, h
 
 
-async def _fetch_asset_bytes(url: str) -> tuple[bytes, str]:
+def _extract_http_metadata(resp: httpx.Response) -> dict:
+    """Extract HTTP status, headers, and redirect history from an httpx response."""
+    history = []
+    for r in resp.history:
+        history.append({
+            "status": r.status_code,
+            "url": str(r.url),
+            "headers": dict(r.headers),
+        })
+
+    return {
+        "status": resp.status_code,
+        "headers": dict(resp.headers),
+        "redirect_history": history if history else None,
+    }
+
+
+async def _fetch_asset_bytes(url: str) -> tuple[bytes, str, dict]:
     resp = await _client.get(url)
     resp.raise_for_status()
 
@@ -114,7 +131,8 @@ async def _fetch_asset_bytes(url: str) -> tuple[bytes, str]:
     if not data:
         raise RuntimeError("Empty response body")
 
-    return data, content_type
+    http_metadata = _extract_http_metadata(resp)
+    return data, content_type, http_metadata
 
 
 async def fetch_and_process_asset(
@@ -124,7 +142,7 @@ async def fetch_and_process_asset(
     max_height: int | None,
 ) -> dict:
     try:
-        data, content_type = await _fetch_asset_bytes(url)
+        data, content_type, http_metadata = await _fetch_asset_bytes(url)
 
         if _is_raster_image(content_type):
             processed, new_ct, fmt_name, w, h = _process_image(
@@ -138,6 +156,7 @@ async def fetch_and_process_asset(
                 "width": w,
                 "height": h,
                 "data": base64.b64encode(processed).decode("ascii"),
+                "http": http_metadata,
             }
 
         return {
@@ -145,6 +164,7 @@ async def fetch_and_process_asset(
             "status": "success",
             "content_type": content_type,
             "data": base64.b64encode(data).decode("ascii"),
+            "http": http_metadata,
         }
 
     except Exception as exc:

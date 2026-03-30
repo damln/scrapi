@@ -68,7 +68,14 @@ Fetch full HTML content from one or more URLs.
         "og:image": "https://example.com/image.png",
         "canonical": "https://example.com/page"
       },
-      "markdown": "# Example Page\n\nThis is the page content..."
+      "markdown": "# Example Page\n\nThis is the page content...",
+      "http": {
+        "status": 200,
+        "headers": {"content-type": "text/html; charset=utf-8", "...": "..."},
+        "redirect_history": [
+          {"status": 301, "url": "http://example.com/page", "headers": {"location": "https://example.com/page", "...": "..."}}
+        ]
+      }
     }
   ]
 }
@@ -112,7 +119,12 @@ Download a single asset (image, CSS, JS) and return it as base64-encoded data.
   "format": "JPEG",
   "width": 1920,
   "height": 1080,
-  "data": "<base64>"
+  "data": "<base64>",
+  "http": {
+    "status": 200,
+    "headers": {"content-type": "image/webp", "...": "..."},
+    "redirect_history": null
+  }
 }
 ```
 
@@ -123,7 +135,12 @@ Download a single asset (image, CSS, JS) and return it as base64-encoded data.
   "url": "https://example.com/style.css",
   "status": "success",
   "content_type": "text/css",
-  "data": "<base64>"
+  "data": "<base64>",
+  "http": {
+    "status": 200,
+    "headers": {"content-type": "text/css", "...": "..."},
+    "redirect_history": null
+  }
 }
 ```
 
