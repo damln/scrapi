@@ -79,6 +79,63 @@ Fetch full HTML content from one or more URLs.
 }
 ```
 
+### `GET /api/v1/asset`
+
+Download a single asset (image, CSS, JS) and return it as base64-encoded data.
+
+**Auth:** Bearer token in `Authorization` header.
+
+**Query params:**
+
+| Param | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `url` | string | yes | — | Asset URL to download |
+| `output_format` | string | no | — | Image format + quality: `"JPG,98"`, `"WEBP,85"`, `"PNG"`. Quality optional (default 85). Ignored for CSS/JS/SVG. |
+| `max_width` | int | no | — | Max width in px. Aspect ratio preserved, never upscales. Ignored for CSS/JS/SVG. |
+| `max_height` | int | no | — | Max height in px. Aspect ratio preserved, never upscales. Ignored for CSS/JS/SVG. |
+
+**Response (image):**
+
+```json
+{
+  "url": "https://example.com/photo.webp",
+  "status": "success",
+  "content_type": "image/jpeg",
+  "format": "JPEG",
+  "width": 1920,
+  "height": 1080,
+  "data": "<base64>"
+}
+```
+
+**Response (CSS/JS/SVG):**
+
+```json
+{
+  "url": "https://example.com/style.css",
+  "status": "success",
+  "content_type": "text/css",
+  "data": "<base64>"
+}
+```
+
+**Error response:**
+
+```json
+{
+  "url": "https://example.com/image.png",
+  "status": "error",
+  "error": "HTTP 403 fetching asset"
+}
+```
+
+**Notes:**
+- Uses httpx (not browser) for fast fetching — most CDN assets don't need stealth
+- Max asset size: 20MB
+- Supported image formats: PNG, JPEG, WEBP, GIF, and any format Pillow can open
+- SVG is passed through as-is (no raster processing)
+- Animated GIFs are passed through unchanged unless a transform is requested
+
 ### URL Cleaning
 
 Before fetching, all URLs are cleaned:
@@ -126,6 +183,24 @@ Multiple URLs (repeat the `urls` param):
 
 ```bash
 curl -H "Authorization: Bearer dev-token-change-me" "http://localhost:10700/api/v1/content?urls=https://damln.com&urls=https://example.com&urls=https://other.com"
+```
+
+Asset download (image):
+
+```bash
+curl -H "Authorization: Bearer dev-token-change-me" "http://localhost:10700/api/v1/asset?url=https://www.google.com/images/branding/googlelogo/2x/googlelogo_color_272x92dp.png"
+```
+
+Asset download with format conversion and resize:
+
+```bash
+curl -H "Authorization: Bearer dev-token-change-me" "http://localhost:10700/api/v1/asset?url=https://www.google.com/images/branding/googlelogo/2x/googlelogo_color_272x92dp.png&output_format=JPG,95&max_width=800"
+```
+
+Asset download (CSS):
+
+```bash
+curl -H "Authorization: Bearer dev-token-change-me" "http://localhost:10700/api/v1/asset?url=https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css"
 ```
 
 With lazy-load scrolling (for pages that load content on scroll):

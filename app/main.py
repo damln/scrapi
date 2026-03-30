@@ -3,16 +3,18 @@ from contextlib import asynccontextmanager
 from fastapi import Depends, FastAPI, Query
 from fastapi.responses import PlainTextResponse
 
-from app import cloudflare_fetcher, firecrawl_fetcher
+from app import asset_fetcher, cloudflare_fetcher, firecrawl_fetcher
 from app.auth import verify_token
 from app.fetcher import fetch_urls
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    asset_fetcher.init_client()
     cloudflare_fetcher.init_client()
     firecrawl_fetcher.init_client()
     yield
+    await asset_fetcher.close_client()
     await cloudflare_fetcher.close_client()
     await firecrawl_fetcher.close_client()
 
@@ -59,3 +61,14 @@ async def get_content(
 
     results = await fetch_urls(urls, no_style=no_style, no_script=no_script, provider_order=providers, scroll_full=scroll_full)
     return {"results": results}
+
+
+@app.get("/api/v1/asset")
+async def get_asset(
+    url: str = Query(..., description="Asset URL to download"),
+    output_format: str | None = Query(None, description="Image format and quality, e.g. 'JPG,98' or 'WEBP,85'"),
+    max_width: int | None = Query(None, ge=1, description="Max width in pixels (aspect ratio preserved)"),
+    max_height: int | None = Query(None, ge=1, description="Max height in pixels (aspect ratio preserved)"),
+    _token: str = Depends(verify_token),
+):
+    return await asset_fetcher.fetch_and_process_asset(url, output_format, max_width, max_height)
