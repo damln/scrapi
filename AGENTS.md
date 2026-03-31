@@ -348,6 +348,8 @@ sudo ufw allow from 172.17.0.0/16 to any port 1080 proto tcp comment "SOCKS rela
 
 - `SCRAPI_API_TOKEN` — required, the bearer token for API auth
 - `SCRAPI_FETCH_TIMEOUT_MS` — optional, fetch timeout in ms (default: 30000)
+- `PROVIDER_HARD_TIMEOUT_S` — optional, hard asyncio timeout per provider call in seconds (default: 45). Safety net that kills a hung provider.
+- `FETCH_SINGLE_URL_TIMEOUT_S` — optional, hard timeout for the entire URL fetch (all providers + retries) in seconds (default: 120)
 - `FIRECRAWL_API_KEY` — Firecrawl API key
 - `CLOUDFLARE_API_KEY` — Cloudflare API key
 - `CLOUDFLARE_ACCOUNT_ID` — Cloudflare account ID

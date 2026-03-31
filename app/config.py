@@ -6,6 +6,15 @@ FETCH_TIMEOUT_MS = int(os.environ.get("SCRAPI_FETCH_TIMEOUT_MS", "30000"))
 SCRAPLING_TIMEOUT_MS = FETCH_TIMEOUT_MS
 SCRAPLING_MAX_CONCURRENT = int(os.environ.get("SCRAPLING_MAX_CONCURRENT", "2"))
 
+# Hard asyncio timeout per provider call (seconds). This is the safety net that
+# kills a provider attempt if Scrapling's browser or an HTTP call hangs past its
+# own internal timeout. Must be greater than the provider's own timeout.
+PROVIDER_HARD_TIMEOUT_S = int(os.environ.get("PROVIDER_HARD_TIMEOUT_S", "45"))
+
+# Hard asyncio timeout for the entire fetch_single_url call (all providers
+# combined, including retries). Prevents a single URL from blocking forever.
+FETCH_SINGLE_URL_TIMEOUT_S = int(os.environ.get("FETCH_SINGLE_URL_TIMEOUT_S", "120"))
+
 FIRECRAWL_API_KEY = os.environ.get("FIRECRAWL_API_KEY", "")
 FIRECRAWL_BASE_URL = "https://api.firecrawl.dev/v1"
 FIRECRAWL_TIMEOUT_SECONDS = int(os.environ.get("FIRECRAWL_TIMEOUT_SECONDS", "30"))

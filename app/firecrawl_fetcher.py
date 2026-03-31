@@ -7,7 +7,14 @@ _client: httpx.AsyncClient | None = None
 
 def init_client() -> None:
     global _client
-    _client = httpx.AsyncClient(timeout=FIRECRAWL_TIMEOUT_SECONDS)
+    _client = httpx.AsyncClient(
+        timeout=httpx.Timeout(
+            connect=10.0,
+            read=float(FIRECRAWL_TIMEOUT_SECONDS),
+            write=10.0,
+            pool=10.0,
+        )
+    )
 
 
 async def close_client() -> None:

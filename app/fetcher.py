@@ -6,7 +6,7 @@ import logging
 from scrapling.fetchers import StealthyFetcher
 
 from app.cloudflare_fetcher import fetch_with_cloudflare
-from app.config import CLOUDFLARE_API_KEY, FIRECRAWL_API_KEY, PROXY_URL, SCRAPLING_MAX_CONCURRENT, SCRAPLING_TIMEOUT_MS
+from app.config import CLOUDFLARE_API_KEY, FETCH_SINGLE_URL_TIMEOUT_S, FIRECRAWL_API_KEY, PROVIDER_HARD_TIMEOUT_S, PROXY_URL, SCRAPLING_MAX_CONCURRENT, SCRAPLING_TIMEOUT_MS
 from app.content_validator import validate_content
 from app.cookie_dismiss import dismiss_cookies
 from app.firecrawl_fetcher import fetch_with_firecrawl
@@ -146,18 +146,27 @@ async def _try_provider(
 
     for attempt in range(attempts):
         try:
-            logger.info("[%s] fetching %s", provider, url)
+            logger.info("[%s] fetching %s (attempt %d/%d)", provider, url, attempt + 1, attempts)
             http_metadata = None
 
             if provider == "raw":
                 sem = _get_scrapling_semaphore()
                 fn = functools.partial(_fetch_with_scrapling, url, scroll_full=scroll_full)
                 async with sem:
-                    html, http_metadata = await loop.run_in_executor(_thread_pool, fn)
+                    html, http_metadata = await asyncio.wait_for(
+                        loop.run_in_executor(_thread_pool, fn),
+                        timeout=PROVIDER_HARD_TIMEOUT_S,
+                    )
             elif provider == "cloudflare":
-                html = await fetch_with_cloudflare(url, scroll_full=scroll_full)
+                html = await asyncio.wait_for(
+                    fetch_with_cloudflare(url, scroll_full=scroll_full),
+                    timeout=PROVIDER_HARD_TIMEOUT_S,
+                )
             elif provider == "firecrawl":
-                html = await fetch_with_firecrawl(url)
+                html = await asyncio.wait_for(
+                    fetch_with_firecrawl(url),
+                    timeout=PROVIDER_HARD_TIMEOUT_S,
+                )
             else:
                 logger.warning("[%s] unknown provider", provider)
                 return None, None, None, None, None
@@ -175,6 +184,11 @@ async def _try_provider(
 
             logger.warning("[%s] content rejected for %s: %s", provider, url, validation["reason"])
             return None, None, None, None, None
+        except asyncio.TimeoutError:
+            logger.error("[%s] hard timeout (%ds) for %s on attempt %d", provider, PROVIDER_HARD_TIMEOUT_S, url, attempt + 1)
+            if attempt < attempts - 1:
+                await asyncio.sleep(SCRAPLING_RETRY_DELAY_S)
+                continue
         except Exception as error:
             if attempt < attempts - 1:
                 logger.warning("[%s] attempt %d failed for %s: %s — retrying", provider, attempt + 1, url, error)
@@ -189,6 +203,25 @@ async def fetch_single_url(raw_url: str, no_style: bool = False, no_script: bool
     """Fetch a URL trying providers in the given order."""
     url = clean_url(raw_url)
 
+    try:
+        return await asyncio.wait_for(
+            _fetch_single_url_inner(url, raw_url, no_style, no_script, provider_order, scroll_full),
+            timeout=FETCH_SINGLE_URL_TIMEOUT_S,
+        )
+    except asyncio.TimeoutError:
+        logger.error("Overall timeout (%ds) for %s — all providers exhausted or hung", FETCH_SINGLE_URL_TIMEOUT_S, url)
+        return {
+            "url": url,
+            "raw_url": raw_url,
+            "status": "error",
+            "provider": None,
+            "error": f"Overall fetch timeout ({FETCH_SINGLE_URL_TIMEOUT_S}s) — request took too long",
+            "html": None,
+        }
+
+
+async def _fetch_single_url_inner(url: str, raw_url: str, no_style: bool, no_script: bool, provider_order: list[str] | None, scroll_full: bool) -> dict:
+    """Inner fetch logic, separated so fetch_single_url can wrap it with a hard timeout."""
     # Special-case Twitter and YouTube — use dedicated API fetchers
     special_result = await _try_special_fetcher(url, raw_url)
     if special_result is not None:
