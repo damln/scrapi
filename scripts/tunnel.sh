@@ -17,7 +17,7 @@ set -euo pipefail
 
 # --- Configuration ---
 SOCKS_PORT=1080
-SSH_HOST="diez.damln.com"  # Change to your server SSH alias/host
+SSH_HOST="vela.damln.com"  # Change to your server SSH alias/host
 PIDFILE_MICROSOCKS="/tmp/scrapi-microsocks.pid"
 PIDFILE_TUNNEL="/tmp/scrapi-tunnel.pid"
 
