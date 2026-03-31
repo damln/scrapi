@@ -17,7 +17,8 @@ set -euo pipefail
 
 # --- Configuration ---
 SOCKS_PORT=1080
-SSH_HOST="vela.damln.com"  # Change to your server SSH alias/host
+SSH_HOST="apprunner@vela.damln.com"
+SSH_PORT=8453
 PIDFILE_MICROSOCKS="/tmp/scrapi-microsocks.pid"
 PIDFILE_TUNNEL="/tmp/scrapi-tunnel.pid"
 
@@ -50,6 +51,7 @@ start() {
       -o "ExitOnForwardFailure yes" \
       -R "127.0.0.1:${SOCKS_PORT}:127.0.0.1:${SOCKS_PORT}" \
       -N \
+      -p "$SSH_PORT" \
       "$SSH_HOST" &
     echo $! > "$PIDFILE_TUNNEL"
     echo "tunnel started to $SSH_HOST (pid $!)"
