@@ -19,6 +19,7 @@ set -euo pipefail
 SOCKS_PORT=1080
 SSH_HOST="apprunner@vela.damln.com"
 SSH_PORT=8453
+SSH_KEY="$HOME/.ssh/vela"
 PIDFILE_MICROSOCKS="/tmp/scrapi-microsocks.pid"
 PIDFILE_TUNNEL="/tmp/scrapi-tunnel.pid"
 
@@ -52,6 +53,7 @@ start() {
       -R "127.0.0.1:${SOCKS_PORT}:127.0.0.1:${SOCKS_PORT}" \
       -N \
       -p "$SSH_PORT" \
+      -i "$SSH_KEY" \
       "$SSH_HOST" &
     echo $! > "$PIDFILE_TUNNEL"
     echo "tunnel started to $SSH_HOST (pid $!)"
