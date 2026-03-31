@@ -287,40 +287,62 @@ Built-in via Scrapling's `disable_ads=True` parameter, which installs **uBlock O
 
 For production deployment to the server, use the `damian-server` skill (`/damian-server`). It covers the full Docker Swarm deploy flow, config resolution via `os.yml` + `os_config.yml`, and all common pitfalls.
 
-## NanoClaw (MacBook Air) Setup
+## Residential IP Proxy (SOCKS5 via SSH Reverse Tunnel)
 
-Scrapi also runs on the MacBook Air at `~/scrapi` for local use. From other Docker containers on the same host (e.g. NanoClaw agents), reach it at:
+Scrapi routes outbound requests through a MacBook Air's residential IP to avoid datacenter IP blocks. The proxy is optional — if `PROXY_URL` is unset, scrapi uses the server's direct connection.
+
+**Architecture:**
 
 ```
-http://host.docker.internal:10700
+scrapi (Swarm overlay) → socks-relay container (bridge+overlay) → host:1080 (SSH tunnel) → MacBook Air → internet
 ```
 
-**Update to latest version:**
+Three components:
 
-```bash
-cd ~/scrapi && git pull && docker compose -f docker-compose.dev.yml up --build -d
-```
+1. **MacBook Air** runs `microsocks` (SOCKS5 proxy) on `127.0.0.1:1080`
+2. **SSH reverse tunnel** from MacBook Air to vela binds `0.0.0.0:1080` on the server, forwarding to the MacBook's microsocks
+3. **`socks-relay` container** on vela bridges Docker bridge network (can reach host:1080) to the `traefik-public` overlay (scrapi can reach it by name)
 
-## Residential IP Tunnel (SSH Reverse Tunnel)
-
-Scrapi can route outbound requests through a MacBook Air's residential IP via a SOCKS5 reverse tunnel. This avoids datacenter IP blocks.
-
-**How it works:**
-1. MacBook Air runs `microsocks` (SOCKS5 proxy) on `127.0.0.1:1080`
-2. MacBook Air opens a reverse SSH tunnel to the server (`ssh -R 1080:127.0.0.1:1080`)
-3. Scrapi connects to `socks5://host.docker.internal:1080` — traffic exits through the MacBook's residential IP
+**Why the relay container?** Swarm overlay containers are isolated from the host network. The `socks-relay` container runs on the default bridge network (which can reach host ports via `172.17.0.1`) and is also connected to `traefik-public`, so scrapi reaches it at `socks-relay:1080`.
 
 **Start/stop the tunnel (from MacBook Air):**
 
 ```bash
-./scripts/tunnel.sh start    # Start proxy + tunnel
+cd ~/scrapi
+./scripts/tunnel.sh start    # Start microsocks + autossh reverse tunnel
 ./scripts/tunnel.sh stop     # Stop both
 ./scripts/tunnel.sh status   # Check if running
 ```
 
 **Requirements on MacBook Air:** `brew install microsocks autossh`
 
-**Proxy is optional:** If `PROXY_URL` is empty or unset, scrapi behaves as before (direct connection). Only the raw provider (Scrapling) and asset fetcher use the proxy — API fetchers (Cloudflare, Firecrawl, Twitter, YouTube) are not proxied.
+**Manage the socks-relay container (on vela):**
+
+```bash
+# Create (one-time)
+docker run -d --name socks-relay --restart always alpine/socat TCP-LISTEN:1080,fork,reuseaddr TCP:172.17.0.1:1080
+docker network connect traefik-public socks-relay
+
+# Check
+docker logs socks-relay
+docker exec socks-relay nc -w 3 172.17.0.1 1080  # should connect
+
+# Restart
+docker restart socks-relay
+
+# Verify IP from server host
+curl -x socks5://127.0.0.1:1080 -s https://api.ipify.org  # should show MacBook's residential IP
+```
+
+**UFW rule on vela:** Port 1080 must be open from the Docker bridge subnet:
+
+```bash
+sudo ufw allow from 172.17.0.0/16 to any port 1080 proto tcp comment "SOCKS relay from Docker bridge"
+```
+
+**What gets proxied:** Only the raw provider (Scrapling) and asset fetcher. API fetchers (Cloudflare, Firecrawl, Twitter, YouTube) are not proxied — they call external APIs, not target websites.
+
+**`GatewayPorts`:** The server's `/etc/ssh/sshd_config` has `GatewayPorts clientspecified` to allow the tunnel to bind to `0.0.0.0` (required for Docker bridge access).
 
 ## Environment Variables
 
@@ -329,4 +351,4 @@ Scrapi can route outbound requests through a MacBook Air's residential IP via a 
 - `FIRECRAWL_API_KEY` — Firecrawl API key
 - `CLOUDFLARE_API_KEY` — Cloudflare API key
 - `CLOUDFLARE_ACCOUNT_ID` — Cloudflare account ID
-- `PROXY_URL` — optional, SOCKS5 proxy URL (e.g. `socks5://host.docker.internal:1080`). Routes raw/asset fetches through the proxy
+- `PROXY_URL` — optional, SOCKS5 proxy URL (e.g. `socks5://socks-relay:1080`). Routes raw/asset fetches through the proxy
