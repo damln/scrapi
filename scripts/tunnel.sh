@@ -15,6 +15,9 @@
 
 set -euo pipefail
 
+# Ensure Homebrew is in PATH (for non-interactive SSH)
+export PATH="/opt/homebrew/bin:/usr/local/bin:$PATH"
+
 # --- Configuration ---
 SOCKS_PORT=1080
 SSH_HOST="apprunner@vela.damln.com"
