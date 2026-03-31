@@ -9,6 +9,8 @@ services:
     env_file:
       - .env
       - .env.production
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     networks:
       - traefik-public
     healthcheck:

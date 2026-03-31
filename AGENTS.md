@@ -301,6 +301,27 @@ http://host.docker.internal:10700
 cd ~/scrapi && git pull && docker compose -f docker-compose.dev.yml up --build -d
 ```
 
+## Residential IP Tunnel (SSH Reverse Tunnel)
+
+Scrapi can route outbound requests through a MacBook Air's residential IP via a SOCKS5 reverse tunnel. This avoids datacenter IP blocks.
+
+**How it works:**
+1. MacBook Air runs `microsocks` (SOCKS5 proxy) on `127.0.0.1:1080`
+2. MacBook Air opens a reverse SSH tunnel to the server (`ssh -R 1080:127.0.0.1:1080`)
+3. Scrapi connects to `socks5://host.docker.internal:1080` — traffic exits through the MacBook's residential IP
+
+**Start/stop the tunnel (from MacBook Air):**
+
+```bash
+./scripts/tunnel.sh start    # Start proxy + tunnel
+./scripts/tunnel.sh stop     # Stop both
+./scripts/tunnel.sh status   # Check if running
+```
+
+**Requirements on MacBook Air:** `brew install microsocks autossh`
+
+**Proxy is optional:** If `PROXY_URL` is empty or unset, scrapi behaves as before (direct connection). Only the raw provider (Scrapling) and asset fetcher use the proxy — API fetchers (Cloudflare, Firecrawl, Twitter, YouTube) are not proxied.
+
 ## Environment Variables
 
 - `SCRAPI_API_TOKEN` — required, the bearer token for API auth
@@ -308,3 +329,4 @@ cd ~/scrapi && git pull && docker compose -f docker-compose.dev.yml up --build -
 - `FIRECRAWL_API_KEY` — Firecrawl API key
 - `CLOUDFLARE_API_KEY` — Cloudflare API key
 - `CLOUDFLARE_ACCOUNT_ID` — Cloudflare account ID
+- `PROXY_URL` — optional, SOCKS5 proxy URL (e.g. `socks5://host.docker.internal:1080`). Routes raw/asset fetches through the proxy

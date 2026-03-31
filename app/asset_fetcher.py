@@ -4,7 +4,7 @@ import io
 import httpx
 from PIL import Image
 
-from app.config import FETCH_TIMEOUT_MS
+from app.config import FETCH_TIMEOUT_MS, PROXY_URL
 
 MAX_ASSET_BYTES = 20 * 1024 * 1024  # 20MB
 
@@ -25,11 +25,14 @@ _client: httpx.AsyncClient | None = None
 
 def init_client():
     global _client
-    _client = httpx.AsyncClient(
+    kwargs = dict(
         headers=_DEFAULT_HEADERS,
         follow_redirects=True,
         timeout=httpx.Timeout(FETCH_TIMEOUT_MS / 1000),
     )
+    if PROXY_URL:
+        kwargs["proxy"] = PROXY_URL
+    _client = httpx.AsyncClient(**kwargs)
 
 
 async def close_client():

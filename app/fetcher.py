@@ -6,7 +6,7 @@ import logging
 from scrapling.fetchers import StealthyFetcher
 
 from app.cloudflare_fetcher import fetch_with_cloudflare
-from app.config import CLOUDFLARE_API_KEY, FIRECRAWL_API_KEY, SCRAPLING_MAX_CONCURRENT, SCRAPLING_TIMEOUT_MS
+from app.config import CLOUDFLARE_API_KEY, FIRECRAWL_API_KEY, PROXY_URL, SCRAPLING_MAX_CONCURRENT, SCRAPLING_TIMEOUT_MS
 from app.content_validator import validate_content
 from app.cookie_dismiss import dismiss_cookies
 from app.firecrawl_fetcher import fetch_with_firecrawl
@@ -107,14 +107,16 @@ def _extract_http_metadata(page) -> dict:
 def _fetch_with_scrapling(url: str, scroll_full: bool = False) -> tuple[str, dict]:
     """Fetch using StealthyFetcher. Raises on failure. Returns (html, http_metadata)."""
     action = dismiss_cookies_and_scroll if scroll_full else dismiss_cookies
-    page = StealthyFetcher.fetch(
-        url,
+    fetch_kwargs = dict(
         headless=True,
         network_idle=True,
         timeout=SCRAPLING_TIMEOUT_MS,
         page_action=action,
         disable_ads=True,
     )
+    if PROXY_URL:
+        fetch_kwargs["proxy"] = PROXY_URL
+    page = StealthyFetcher.fetch(url, **fetch_kwargs)
     html = page.body if isinstance(page.body, str) else page.body.decode("utf-8", errors="replace")
     http_metadata = _extract_http_metadata(page)
     return html, http_metadata
