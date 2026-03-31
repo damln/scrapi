@@ -9,11 +9,8 @@ services:
     env_file:
       - .env
       - .env.production
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
     networks:
       - traefik-public
-      - scrapi-hostnet
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:10700/health"]
       interval: 5s
@@ -53,6 +50,4 @@ services:
 
 networks:
   traefik-public:
-    external: true
-  scrapi-hostnet:
     external: true
