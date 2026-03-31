@@ -50,7 +50,7 @@ start() {
       -o "ServerAliveInterval 30" \
       -o "ServerAliveCountMax 3" \
       -o "ExitOnForwardFailure yes" \
-      -R "127.0.0.1:${SOCKS_PORT}:127.0.0.1:${SOCKS_PORT}" \
+      -R "0.0.0.0:${SOCKS_PORT}:127.0.0.1:${SOCKS_PORT}" \
       -N \
       -p "$SSH_PORT" \
       -i "$SSH_KEY" \
