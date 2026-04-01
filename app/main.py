@@ -1,4 +1,5 @@
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 from fastapi import Depends, FastAPI, Query
 from fastapi.responses import PlainTextResponse
@@ -82,6 +83,14 @@ async def delete_cache(
         "entries_removed": entries_removed,
         "size_freed_mb": round(size_before / (1024 * 1024), 2),
     }
+
+
+@app.get("/api/v1/agents", response_class=PlainTextResponse)
+async def get_agents(
+    _token: str = Depends(verify_token),
+):
+    agents_path = Path(__file__).resolve().parent.parent / "AGENTS.md"
+    return agents_path.read_text(encoding="utf-8")
 
 
 @app.get("/api/v1/asset")

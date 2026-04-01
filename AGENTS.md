@@ -40,6 +40,7 @@ Fetch full HTML content from one or more URLs.
 | `no_script` | bool | no | `false` | Remove all inline `<script>` tags (without `src` attribute) |
 | `provider_order` | string | no | `raw,cloudflare,firecrawl` | Comma-separated provider order |
 | `scroll_full` | bool | no | `false` | Scroll full page incrementally to trigger lazy-loaded content. Adds ~5–20s. Supported by `raw` and `cloudflare`; no-op for `firecrawl`. |
+| `force_fetch` | bool | no | `false` | Bypass cache and force a fresh fetch. The result is still written to cache. |
 
 **Max 10 URLs per request.**
 
@@ -93,6 +94,61 @@ Fetch full HTML content from one or more URLs.
   "html": null
 }
 ```
+
+**Error response for Twitter/YouTube 404:**
+
+When a Twitter/X or YouTube URL is confirmed as not found (404) by the dedicated fetcher, the API returns an error with the provider name and a `"Not found (404)"` message. This is a confirmed 404 — the URL genuinely does not exist (deleted tweet, removed video, etc.).
+
+```json
+{
+  "url": "https://x.com/user/status/123",
+  "raw_url": "https://x.com/user/status/123",
+  "status": "error",
+  "provider": "twitter",
+  "error": "Not found (404)",
+  "html": null
+}
+```
+
+```json
+{
+  "url": "https://www.youtube.com/watch?v=invalid",
+  "raw_url": "https://www.youtube.com/watch?v=invalid",
+  "status": "error",
+  "provider": "youtube",
+  "error": "Not found (404)",
+  "html": null
+}
+```
+
+**How to distinguish error types:**
+- `status: "error"` + `provider: null` → all providers failed (network/timeout/block)
+- `status: "error"` + `provider: "twitter"` or `"youtube"` + `error: "Not found (404)"` → confirmed 404, the content does not exist
+- `status: "error"` + `error` starts with `"Overall fetch timeout"` → request timed out
+
+### `DELETE /api/v1/cache`
+
+Clear the entire response cache.
+
+**Auth:** Bearer token in `Authorization` header.
+
+**Response:**
+
+```json
+{
+  "status": "ok",
+  "entries_removed": 42,
+  "size_freed_mb": 156.78
+}
+```
+
+### `GET /api/v1/agents`
+
+Returns the full content of this `AGENTS.md` file as plain text. Useful for AI agents that consume the scrapi API and need to understand its capabilities, response formats, and error handling at runtime.
+
+**Auth:** Bearer token in `Authorization` header.
+
+**Response:** Plain text (the raw markdown content of AGENTS.md).
 
 ### `GET /api/v1/asset`
 
@@ -344,6 +400,25 @@ sudo ufw allow from 172.17.0.0/16 to any port 1080 proto tcp comment "SOCKS rela
 
 **`GatewayPorts`:** The server's `/etc/ssh/sshd_config` has `GatewayPorts clientspecified` to allow the tunnel to bind to `0.0.0.0` (required for Docker bridge access).
 
+## Response Cache
+
+Successful responses are cached to disk as gzip-compressed JSON files. This avoids re-fetching the same URL on repeated requests.
+
+- **TTL:** 24 hours (configurable via `CACHE_TTL_HOURS`)
+- **Versions kept:** 5 per URL (configurable via `CACHE_MAX_VERSIONS`), providing a history of past fetches
+- **Max total size:** 20 GB (configurable via `CACHE_MAX_SIZE_GB`). When exceeded, caching is fully disabled (no reads, no writes) until cache is cleared
+- **Cache key:** MD5 hash of the cleaned URL (after tracking param removal and query param sorting)
+- **Storage:** gzip-compressed JSON files at `{CACHE_DIR}/{md5[:2]}/{md5}/{timestamp}.json.gz`
+- **Atomic writes:** files are written to `.tmp` then renamed (POSIX atomic on same filesystem)
+- **Docker dev:** bind-mount `./cache:/cache` (inspectable from host)
+- **Docker prod:** named volume `scrapi_cache:/cache` (persistent, shared across replicas)
+
+**Behavior:**
+- By default, a cache hit within TTL is served immediately without contacting any provider
+- `force_fetch=true` bypasses the cache read but still writes the fresh result to cache
+- Only `status: "success"` results are cached. Errors are never cached.
+- `DELETE /api/v1/cache` clears all cached data
+
 ## Environment Variables
 
 - `SCRAPI_API_TOKEN` — required, the bearer token for API auth
@@ -354,3 +429,7 @@ sudo ufw allow from 172.17.0.0/16 to any port 1080 proto tcp comment "SOCKS rela
 - `CLOUDFLARE_API_KEY` — Cloudflare API key
 - `CLOUDFLARE_ACCOUNT_ID` — Cloudflare account ID
 - `PROXY_URL` — optional, SOCKS5 proxy URL (e.g. `socks5://socks-relay:1080`). Routes raw/asset fetches through the proxy
+- `CACHE_DIR` — cache directory path (default: `/cache`)
+- `CACHE_TTL_HOURS` — cache TTL in hours (default: 24)
+- `CACHE_MAX_VERSIONS` — max versions to keep per URL (default: 5)
+- `CACHE_MAX_SIZE_GB` — max total cache size in GB (default: 20). Cache disabled when exceeded
