@@ -50,6 +50,7 @@ async def fetch_twitter(url: str) -> dict | None:
     """Fetch a Twitter/X URL. Returns a result dict or None on failure.
 
     Strategy: fxtwitter API → oEmbed fallback.
+    Returns {"not_found": True, "http_status": 404} when the page is confirmed gone.
     """
     result = await _fetch_fxtwitter(url)
     if result:
@@ -67,6 +68,10 @@ async def _fetch_fxtwitter(url: str) -> dict | None:
     client = _get_client()
     try:
         resp = await client.get(f"https://api.fxtwitter.com{path}")
+        if resp.status_code == 404:
+            logger.warning("fxtwitter returned 404 for %s (tweet not found)", url)
+            return {"not_found": True, "http_status": 404}
+
         if resp.status_code != 200:
             logger.warning("fxtwitter returned %d for %s", resp.status_code, url)
             return None
@@ -164,6 +169,10 @@ async def _fetch_oembed(url: str) -> dict | None:
             "https://publish.twitter.com/oembed",
             params={"url": url},
         )
+        if resp.status_code == 404:
+            logger.warning("twitter oEmbed returned 404 for %s (page not found)", url)
+            return {"not_found": True, "http_status": 404}
+
         if resp.status_code != 200:
             logger.warning("twitter oEmbed returned %d for %s", resp.status_code, url)
             return None

@@ -43,6 +43,10 @@ async def fetch_youtube(url: str) -> dict | None:
             "https://www.youtube.com/oembed",
             params={"url": url, "format": "json"},
         )
+        if resp.status_code == 404:
+            logger.warning("youtube oEmbed returned 404 for %s (page not found)", url)
+            return {"not_found": True, "http_status": 404}
+
         if resp.status_code != 200:
             logger.warning("youtube oEmbed returned %d for %s", resp.status_code, url)
             return None

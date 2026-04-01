@@ -247,7 +247,10 @@ async def _fetch_single_url_inner(url: str, raw_url: str, no_style: bool, no_scr
 
 
 async def _try_special_fetcher(url: str, raw_url: str) -> dict | None:
-    """Try Twitter or YouTube fetchers for known URL patterns."""
+    """Try Twitter or YouTube fetchers for known URL patterns.
+
+    Returns a success dict, a not-found dict (with http.status=404), or None to fall through.
+    """
     result = None
     if is_twitter_url(url):
         result = await fetch_twitter(url)
@@ -256,6 +259,11 @@ async def _try_special_fetcher(url: str, raw_url: str) -> dict | None:
 
     if result is None:
         return None
+
+    if result.get("not_found"):
+        http_status = result.get("http_status", 404)
+        logger.info("Special fetcher confirmed %d for %s — not falling through to providers", http_status, url)
+        return _success(url, raw_url, "<html><head></head><body></body></html>", "youtube" if is_youtube_url(url) else "twitter", None, {}, None, {"status": http_status, "headers": None, "redirect_history": None})
 
     html = result["html"]
     head_meta = extract_head_meta(html)
