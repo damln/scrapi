@@ -24,3 +24,9 @@ CLOUDFLARE_ACCOUNT_ID = os.environ.get("CLOUDFLARE_ACCOUNT_ID", "")
 CLOUDFLARE_TIMEOUT_SECONDS = int(os.environ.get("CLOUDFLARE_TIMEOUT_SECONDS", "30"))
 
 PROXY_URL = os.environ.get("PROXY_URL", "")
+
+# Cache configuration
+CACHE_DIR = os.environ.get("CACHE_DIR", "/cache")
+CACHE_TTL_HOURS = int(os.environ.get("CACHE_TTL_HOURS", "24"))
+CACHE_MAX_VERSIONS = int(os.environ.get("CACHE_MAX_VERSIONS", "5"))
+CACHE_MAX_SIZE_BYTES = int(os.environ.get("CACHE_MAX_SIZE_GB", "20")) * 1024 * 1024 * 1024

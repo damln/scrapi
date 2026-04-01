@@ -9,6 +9,10 @@ services:
     env_file:
       - .env
       - .env.production
+    environment:
+      - CACHE_DIR=/cache
+    volumes:
+      - scrapi_cache:/cache
     networks:
       - traefik-public
     healthcheck:
@@ -47,6 +51,9 @@ services:
         - "traefik.http.routers.scrapi.tls.certresolver=letsencrypt"
         - "traefik.http.routers.scrapi.tls.domains[0].main=scrapi.damln.com"
         - "traefik.http.services.scrapi.loadbalancer.server.port=10700"
+
+volumes:
+  scrapi_cache:
 
 networks:
   traefik-public:

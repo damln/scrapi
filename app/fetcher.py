@@ -5,6 +5,7 @@ import logging
 
 from scrapling.fetchers import StealthyFetcher
 
+from app.cache import read_cache, write_cache
 from app.cloudflare_fetcher import fetch_with_cloudflare
 from app.config import CLOUDFLARE_API_KEY, FETCH_SINGLE_URL_TIMEOUT_S, FIRECRAWL_API_KEY, PROVIDER_HARD_TIMEOUT_S, PROXY_URL, SCRAPLING_MAX_CONCURRENT, SCRAPLING_TIMEOUT_MS
 from app.content_validator import validate_content
@@ -199,12 +200,18 @@ async def _try_provider(
     return None, None, None, None, None
 
 
-async def fetch_single_url(raw_url: str, no_style: bool = False, no_script: bool = False, provider_order: list[str] | None = None, scroll_full: bool = False) -> dict:
-    """Fetch a URL trying providers in the given order."""
+async def fetch_single_url(raw_url: str, no_style: bool = False, no_script: bool = False, provider_order: list[str] | None = None, scroll_full: bool = False, force_fetch: bool = False) -> dict:
+    """Fetch a URL trying providers in the given order. Serves from cache when available."""
     url = clean_url(raw_url)
 
+    if not force_fetch:
+        cached = await asyncio.to_thread(read_cache, url)
+        if cached is not None:
+            cached["raw_url"] = raw_url
+            return cached
+
     try:
-        return await asyncio.wait_for(
+        result = await asyncio.wait_for(
             _fetch_single_url_inner(url, raw_url, no_style, no_script, provider_order, scroll_full),
             timeout=FETCH_SINGLE_URL_TIMEOUT_S,
         )
@@ -218,6 +225,11 @@ async def fetch_single_url(raw_url: str, no_style: bool = False, no_script: bool
             "error": f"Overall fetch timeout ({FETCH_SINGLE_URL_TIMEOUT_S}s) — request took too long",
             "html": None,
         }
+
+    if result.get("status") == "success":
+        await asyncio.to_thread(write_cache, url, result)
+
+    return result
 
 
 async def _fetch_single_url_inner(url: str, raw_url: str, no_style: bool, no_script: bool, provider_order: list[str] | None, scroll_full: bool) -> dict:
@@ -262,8 +274,16 @@ async def _try_special_fetcher(url: str, raw_url: str) -> dict | None:
 
     if result.get("not_found"):
         http_status = result.get("http_status", 404)
-        logger.info("Special fetcher confirmed %d for %s — not falling through to providers", http_status, url)
-        return _success(url, raw_url, "<html><head></head><body></body></html>", "youtube" if is_youtube_url(url) else "twitter", None, {}, None, {"status": http_status, "headers": None, "redirect_history": None})
+        provider = "youtube" if is_youtube_url(url) else "twitter"
+        logger.info("Special fetcher confirmed %d for %s — returning error", http_status, url)
+        return {
+            "url": url,
+            "raw_url": raw_url,
+            "status": "error",
+            "provider": provider,
+            "error": f"Not found ({http_status})",
+            "html": None,
+        }
 
     html = result["html"]
     head_meta = extract_head_meta(html)
@@ -290,7 +310,7 @@ def _success(url: str, raw_url: str, html: str, provider: str, scores: dict | No
     return result
 
 
-async def fetch_urls(urls: list[str], no_style: bool = False, no_script: bool = False, provider_order: list[str] | None = None, scroll_full: bool = False) -> list[dict]:
+async def fetch_urls(urls: list[str], no_style: bool = False, no_script: bool = False, provider_order: list[str] | None = None, scroll_full: bool = False, force_fetch: bool = False) -> list[dict]:
     """Fetch multiple URLs concurrently with fallback chain."""
-    tasks = [fetch_single_url(url, no_style, no_script, provider_order, scroll_full=scroll_full) for url in urls]
+    tasks = [fetch_single_url(url, no_style, no_script, provider_order, scroll_full=scroll_full, force_fetch=force_fetch) for url in urls]
     return await asyncio.gather(*tasks)

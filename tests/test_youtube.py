@@ -130,9 +130,10 @@ def test_youtube_oembed_failure_falls_through(client):
 
     assert resp.status_code == 200
     result = resp.json()["results"][0]
-    # Falls through to normal provider chain
-    if result["status"] == "success":
-        assert result["provider"] != "youtube"
+    assert result["status"] == "error"
+    assert result["provider"] == "youtube"
+    assert result["error"] == "Not found (404)"
+    assert result["html"] is None
 
 
 # ---------------------------------------------------------------------------

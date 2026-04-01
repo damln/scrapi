@@ -4,7 +4,10 @@ from fastapi import Depends, FastAPI, Query
 from fastapi.responses import PlainTextResponse
 
 from app import asset_fetcher, cloudflare_fetcher, firecrawl_fetcher, twitter_fetcher, youtube_fetcher
+import asyncio
+
 from app.auth import verify_token
+from app.cache import cache_size_bytes, clear_cache
 from app.fetcher import fetch_urls
 
 
@@ -47,6 +50,7 @@ async def get_content(
     no_script: bool = Query(False, description="Remove all inline script tags"),
     provider_order: str = Query("raw,cloudflare,firecrawl", description="Comma-separated provider order"),
     scroll_full: bool = Query(False, description="Scroll full page to trigger lazy-loaded content"),
+    force_fetch: bool = Query(False, description="Bypass cache and force a fresh fetch"),
     _token: str = Depends(verify_token),
 ):
     if len(urls) > MAX_URLS_PER_REQUEST:
@@ -63,8 +67,21 @@ async def get_content(
             "results": [],
         }
 
-    results = await fetch_urls(urls, no_style=no_style, no_script=no_script, provider_order=providers, scroll_full=scroll_full)
+    results = await fetch_urls(urls, no_style=no_style, no_script=no_script, provider_order=providers, scroll_full=scroll_full, force_fetch=force_fetch)
     return {"results": results}
+
+
+@app.delete("/api/v1/cache")
+async def delete_cache(
+    _token: str = Depends(verify_token),
+):
+    size_before = await asyncio.to_thread(cache_size_bytes)
+    entries_removed = await asyncio.to_thread(clear_cache)
+    return {
+        "status": "ok",
+        "entries_removed": entries_removed,
+        "size_freed_mb": round(size_before / (1024 * 1024), 2),
+    }
 
 
 @app.get("/api/v1/asset")

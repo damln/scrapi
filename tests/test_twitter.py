@@ -348,9 +348,10 @@ def test_both_strategies_fail_falls_through_to_providers(client):
 
     assert resp.status_code == 200
     result = resp.json()["results"][0]
-    # Provider chain may succeed (real browser) or fail — just check it's not "twitter" provider
-    if result["status"] == "success":
-        assert result["provider"] != "twitter"
+    assert result["status"] == "error"
+    assert result["provider"] == "twitter"
+    assert result["error"] == "Not found (404)"
+    assert result["html"] is None
 
 
 # ---------------------------------------------------------------------------
