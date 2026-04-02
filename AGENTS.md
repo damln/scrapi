@@ -126,6 +126,32 @@ When a Twitter/X or YouTube URL is confirmed as not found (404) by the dedicated
 - `status: "error"` + `provider: "twitter"` or `"youtube"` + `error: "Not found (404)"` → confirmed 404, the content does not exist
 - `status: "error"` + `error` starts with `"Overall fetch timeout"` → request timed out
 
+### `GET /api/v1/cache`
+
+Return cache statistics: number of entries, total size, and per-entry details.
+
+**Auth:** Bearer token in `Authorization` header.
+
+**Response:**
+
+```json
+{
+  "entry_count": 42,
+  "total_size_bytes": 164392960,
+  "total_size_mb": 156.78,
+  "entries": [
+    {
+      "hash": "a1b2c3d4e5f6...",
+      "versions": 3,
+      "size_bytes": 524288,
+      "size_kb": 512.0,
+      "latest": "20260402T120000Z.json.gz",
+      "latest_age_hours": 2.5
+    }
+  ]
+}
+```
+
 ### `DELETE /api/v1/cache`
 
 Clear the entire response cache.

@@ -8,7 +8,7 @@ from app import asset_fetcher, cloudflare_fetcher, firecrawl_fetcher, twitter_fe
 import asyncio
 
 from app.auth import verify_token
-from app.cache import cache_size_bytes, clear_cache
+from app.cache import cache_info, cache_size_bytes, clear_cache
 from app.fetcher import fetch_urls
 
 
@@ -70,6 +70,14 @@ async def get_content(
 
     results = await fetch_urls(urls, no_style=no_style, no_script=no_script, provider_order=providers, scroll_full=scroll_full, force_fetch=force_fetch)
     return {"results": results}
+
+
+@app.get("/api/v1/cache")
+async def get_cache(
+    _token: str = Depends(verify_token),
+):
+    info = await asyncio.to_thread(cache_info)
+    return info
 
 
 @app.delete("/api/v1/cache")

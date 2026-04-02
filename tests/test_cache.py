@@ -324,6 +324,63 @@ def test_cache_size_bytes_with_files(tmp_path):
 from tests.conftest import AUTH_HEADER
 
 
+def test_cache_info_empty(tmp_path):
+    with patch("app.cache.CACHE_DIR", str(tmp_path)):
+        from app.cache import cache_info
+
+        info = cache_info()
+    assert info["entry_count"] == 0
+    assert info["total_size_bytes"] == 0
+    assert info["total_size_mb"] == 0.0
+    assert info["entries"] == []
+
+
+def test_cache_info_with_entries(tmp_path):
+    with patch("app.cache.CACHE_DIR", str(tmp_path)):
+        from app.cache import cache_info, write_cache
+
+        write_cache("https://example.com", SUCCESS_RESULT)
+        write_cache("https://other.com", SUCCESS_RESULT)
+        info = cache_info()
+    assert info["entry_count"] == 2
+    assert info["total_size_bytes"] > 0
+    assert info["total_size_mb"] >= 0
+    assert len(info["entries"]) == 2
+    for entry in info["entries"]:
+        assert "hash" in entry
+        assert entry["versions"] >= 1
+        assert entry["size_bytes"] > 0
+        assert entry["size_kb"] > 0
+        assert entry["latest"].endswith(".json.gz")
+        assert entry["latest_age_hours"] is not None
+
+
+def test_cache_info_nonexistent_dir():
+    with patch("app.cache.CACHE_DIR", "/nonexistent/path"):
+        from app.cache import cache_info
+
+        info = cache_info()
+    assert info["entry_count"] == 0
+
+
+def test_get_cache_endpoint(client, tmp_path):
+    with patch("app.cache.CACHE_DIR", str(tmp_path)):
+        from app.cache import write_cache
+
+        write_cache("https://example.com", SUCCESS_RESULT)
+        resp = client.get("/api/v1/cache", headers=AUTH_HEADER)
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["entry_count"] == 1
+        assert data["total_size_bytes"] > 0
+        assert len(data["entries"]) == 1
+
+
+def test_get_cache_endpoint_requires_auth(client):
+    resp = client.get("/api/v1/cache")
+    assert resp.status_code == 403
+
+
 def test_delete_cache_endpoint(client, tmp_path):
     with patch("app.cache.CACHE_DIR", str(tmp_path)):
         from app.cache import write_cache

@@ -21,6 +21,46 @@ def cache_size_bytes() -> int:
     return sum(f.stat().st_size for f in root.rglob("*") if f.is_file())
 
 
+def cache_info() -> dict:
+    """Return cache statistics: entry count, total size, and per-entry details."""
+    root = Path(CACHE_DIR)
+    if not root.exists():
+        return {"entry_count": 0, "total_size_bytes": 0, "total_size_mb": 0.0, "entries": []}
+
+    entries = []
+    total_size = 0
+
+    for prefix_dir in sorted(root.iterdir()):
+        if not prefix_dir.is_dir():
+            continue
+        for entry_dir in sorted(prefix_dir.iterdir()):
+            if not entry_dir.is_dir():
+                continue
+            files = [f for f in entry_dir.iterdir() if f.is_file() and f.name.endswith(".json.gz")]
+            if not files:
+                continue
+            entry_size = sum(f.stat().st_size for f in files)
+            total_size += entry_size
+            sorted_files = sorted(files, key=lambda f: f.name)
+            latest = sorted_files[-1]
+            ts = _parse_timestamp(latest.name)
+            entries.append({
+                "hash": entry_dir.name,
+                "versions": len(files),
+                "size_bytes": entry_size,
+                "size_kb": round(entry_size / 1024, 2),
+                "latest": latest.name,
+                "latest_age_hours": round((datetime.now(timezone.utc) - ts).total_seconds() / 3600, 1) if ts else None,
+            })
+
+    return {
+        "entry_count": len(entries),
+        "total_size_bytes": total_size,
+        "total_size_mb": round(total_size / (1024 * 1024), 2),
+        "entries": entries,
+    }
+
+
 def clear_cache() -> int:
     """Delete all cached files. Returns the number of files removed."""
     root = Path(CACHE_DIR)
