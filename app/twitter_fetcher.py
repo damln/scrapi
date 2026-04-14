@@ -1,3 +1,4 @@
+import asyncio
 import logging
 import re
 from html import escape as html_escape
@@ -11,6 +12,9 @@ TWITTER_HOSTS = {"twitter.com", "www.twitter.com", "x.com", "www.x.com"}
 MAX_TITLE_LENGTH = 200
 TCO_TIMEOUT = 5.0
 FETCH_TIMEOUT = 30.0
+RETRY_ATTEMPTS = 2
+RETRY_DELAY_S = 2.0
+RETRYABLE_STATUSES = {429, 500, 502, 503, 504}
 
 _client: httpx.AsyncClient | None = None
 
@@ -66,25 +70,39 @@ async def _fetch_fxtwitter(url: str) -> dict | None:
         return None
 
     client = _get_client()
-    try:
-        resp = await client.get(f"https://api.fxtwitter.com{path}")
-        if resp.status_code == 404:
-            logger.warning("fxtwitter returned 404 for %s (tweet not found)", url)
-            return {"not_found": True, "http_status": 404}
 
-        if resp.status_code != 200:
-            logger.warning("fxtwitter returned %d for %s", resp.status_code, url)
+    for attempt in range(RETRY_ATTEMPTS):
+        try:
+            resp = await client.get(f"https://api.fxtwitter.com{path}")
+            if resp.status_code == 404:
+                logger.warning("fxtwitter returned 404 for %s (tweet not found)", url)
+                return {"not_found": True, "http_status": 404}
+
+            if resp.status_code in RETRYABLE_STATUSES:
+                logger.warning("fxtwitter returned %d for %s (attempt %d/%d)", resp.status_code, url, attempt + 1, RETRY_ATTEMPTS)
+                if attempt < RETRY_ATTEMPTS - 1:
+                    await asyncio.sleep(RETRY_DELAY_S)
+                    continue
+                return None
+
+            if resp.status_code != 200:
+                logger.warning("fxtwitter returned %d for %s", resp.status_code, url)
+                return None
+
+            data = resp.json()
+            tweet = data.get("tweet")
+            if not isinstance(tweet, dict):
+                return None
+
+            return _build_fxtwitter_result(url, tweet)
+        except Exception as e:
+            logger.warning("fxtwitter error for %s: %s (attempt %d/%d)", url, e, attempt + 1, RETRY_ATTEMPTS)
+            if attempt < RETRY_ATTEMPTS - 1:
+                await asyncio.sleep(RETRY_DELAY_S)
+                continue
             return None
 
-        data = resp.json()
-        tweet = data.get("tweet")
-        if not isinstance(tweet, dict):
-            return None
-
-        return _build_fxtwitter_result(url, tweet)
-    except Exception as e:
-        logger.warning("fxtwitter error for %s: %s", url, e)
-        return None
+    return None
 
 
 def _build_fxtwitter_result(url: str, tweet: dict) -> dict:
@@ -164,29 +182,38 @@ def _build_fxtwitter_result(url: str, tweet: dict) -> dict:
 
 async def _fetch_oembed(url: str) -> dict | None:
     client = _get_client()
-    try:
-        resp = await client.get(
-            "https://publish.twitter.com/oembed",
-            params={"url": url},
-        )
-        if resp.status_code == 404:
-            logger.warning("twitter oEmbed returned 404 for %s (page not found)", url)
-            return {"not_found": True, "http_status": 404}
 
-        if resp.status_code != 200:
-            logger.warning("twitter oEmbed returned %d for %s", resp.status_code, url)
-            return None
+    for attempt in range(RETRY_ATTEMPTS):
+        try:
+            resp = await client.get(
+                "https://publish.twitter.com/oembed",
+                params={"url": url},
+            )
+            if resp.status_code == 404:
+                logger.warning("twitter oEmbed returned 404 for %s (page not found)", url)
+                return {"not_found": True, "http_status": 404}
 
-        body = resp.json()
-        embed_html = body.get("html", "")
-        if not embed_html:
-            return None
+            if resp.status_code in RETRYABLE_STATUSES:
+                logger.warning("twitter oEmbed returned %d for %s (attempt %d/%d)", resp.status_code, url, attempt + 1, RETRY_ATTEMPTS)
+                if attempt < RETRY_ATTEMPTS - 1:
+                    await asyncio.sleep(RETRY_DELAY_S)
+                    continue
+                return None
 
-        author = body.get("author_name", "")
-        tweet_text = _extract_oembed_text(embed_html)
-        title = _build_title(author, tweet_text)
+            if resp.status_code != 200:
+                logger.warning("twitter oEmbed returned %d for %s", resp.status_code, url)
+                return None
 
-        html = f"""<html>
+            body = resp.json()
+            embed_html = body.get("html", "")
+            if not embed_html:
+                return None
+
+            author = body.get("author_name", "")
+            tweet_text = _extract_oembed_text(embed_html)
+            title = _build_title(author, tweet_text)
+
+            html = f"""<html>
 <head>
 <meta property="og:site_name" content="X (formerly Twitter)">
 <meta property="og:type" content="article">
@@ -200,10 +227,15 @@ async def _fetch_oembed(url: str) -> dict | None:
 <body>{embed_html}</body>
 </html>"""
 
-        return {"html": html.strip(), "title": title, "provider": "twitter"}
-    except Exception as e:
-        logger.warning("twitter oEmbed error for %s: %s", url, e)
-        return None
+            return {"html": html.strip(), "title": title, "provider": "twitter"}
+        except Exception as e:
+            logger.warning("twitter oEmbed error for %s: %s (attempt %d/%d)", url, e, attempt + 1, RETRY_ATTEMPTS)
+            if attempt < RETRY_ATTEMPTS - 1:
+                await asyncio.sleep(RETRY_DELAY_S)
+                continue
+            return None
+
+    return None
 
 
 def _extract_oembed_text(embed_html: str) -> str:
