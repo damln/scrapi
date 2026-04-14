@@ -49,6 +49,12 @@ def _extract_status_path(url: str) -> str | None:
         return path
     return None
 
+def _extract_screen_name(url: str) -> str:
+    """Extract the @username from a Twitter/X status URL path."""
+    parsed = urlparse(url)
+    match = re.match(r"^/([^/]+)/status/\d+", parsed.path or "")
+    return match.group(1) if match else ""
+
 
 async def fetch_twitter(url: str) -> dict | None:
     """Fetch a Twitter/X URL. Returns a result dict or None on failure.
@@ -123,13 +129,11 @@ def _build_fxtwitter_result(url: str, tweet: dict) -> dict:
     og_image = cover_image or (media_images[0] if media_images else "") or avatar_url
 
     if article_title:
-        title = _build_title(author, article_title)
+        title = _build_title(author, screen_name, article_title)
     elif tweet_text and not _just_tco_link(tweet_text):
-        title = _build_title(author, tweet_text)
-    elif author:
-        title = f"{author} on X"
+        title = _build_title(author, screen_name, tweet_text)
     else:
-        title = "Post on X"
+        title = _author_fallback_title(author, screen_name)
 
     body_parts = []
 
@@ -210,8 +214,9 @@ async def _fetch_oembed(url: str) -> dict | None:
                 return None
 
             author = body.get("author_name", "")
+            screen_name = _extract_screen_name(url)
             tweet_text = _extract_oembed_text(embed_html)
-            title = _build_title(author, tweet_text)
+            title = _build_title(author, screen_name, tweet_text)
 
             html = f"""<html>
 <head>
@@ -284,14 +289,20 @@ def _just_tco_link(text: str) -> bool:
     return bool(re.match(r"^https?://t\.co/\S+$", text.strip()))
 
 
-def _build_title(author: str, text: str) -> str:
+def _author_fallback_title(author: str, screen_name: str) -> str:
+    """Fallback title when there is no meaningful tweet text or article."""
+    if screen_name:
+        return f"Post by @{screen_name}"
+    if author:
+        return f"Post by {author}"
+    return "Post on X"
+
+def _build_title(author: str, screen_name: str, text: str) -> str:
     if text and author:
         return _truncate(f"{author}: {text}", MAX_TITLE_LENGTH)
     if text:
         return _truncate(text, MAX_TITLE_LENGTH)
-    if author:
-        return f"{author} on X"
-    return "Post on X"
+    return _author_fallback_title(author, screen_name)
 
 
 def _truncate(text: str, max_length: int) -> str:
