@@ -1,0 +1,11 @@
+name: scrapi
+
+production:
+  app: vela
+  db:
+  domain: scrapi.damln.com
+
+preproduction:
+  app:
+  db:
+  domain:
