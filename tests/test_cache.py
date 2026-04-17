@@ -80,7 +80,7 @@ def test_read_cache_miss_no_dir(tmp_path):
     with patch("app.cache.CACHE_DIR", str(tmp_path)):
         from app.cache import read_cache
 
-        assert read_cache("https://example.com") is None
+        assert read_cache("https://example.com", 24) is None
 
 
 def test_read_cache_miss_empty_dir(tmp_path):
@@ -88,18 +88,18 @@ def test_read_cache_miss_empty_dir(tmp_path):
         from app.cache import _cache_dir_for_url, read_cache
 
         _cache_dir_for_url("https://example.com").mkdir(parents=True)
-        assert read_cache("https://example.com") is None
+        assert read_cache("https://example.com", 24) is None
 
 
 def test_read_cache_miss_expired(tmp_path):
-    with patch("app.cache.CACHE_DIR", str(tmp_path)), patch("app.cache.CACHE_TTL_HOURS", 72):
+    with patch("app.cache.CACHE_DIR", str(tmp_path)):
         from app.cache import _cache_dir_for_url, read_cache
 
         url = "https://example.com"
         cache_dir = _cache_dir_for_url(url)
         old_ts = (datetime.now(timezone.utc) - timedelta(hours=73)).strftime("%Y%m%dT%H%M%SZ")
         _write_version(cache_dir, old_ts, SUCCESS_RESULT)
-        assert read_cache(url) is None
+        assert read_cache(url, 72) is None
 
 
 def test_read_cache_corrupted_file_is_miss(tmp_path):
@@ -112,7 +112,7 @@ def test_read_cache_corrupted_file_is_miss(tmp_path):
         ts = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
         bad_file = cache_dir / f"{ts}.json.gz"
         bad_file.write_bytes(b"not valid gzip data")
-        assert read_cache(url) is None
+        assert read_cache(url, 24) is None
 
 
 # ---------------------------------------------------------------------------
@@ -121,14 +121,14 @@ def test_read_cache_corrupted_file_is_miss(tmp_path):
 
 
 def test_read_cache_hit_fresh(tmp_path):
-    with patch("app.cache.CACHE_DIR", str(tmp_path)), patch("app.cache.CACHE_TTL_HOURS", 72):
+    with patch("app.cache.CACHE_DIR", str(tmp_path)):
         from app.cache import _cache_dir_for_url, read_cache
 
         url = "https://example.com"
         cache_dir = _cache_dir_for_url(url)
         fresh_ts = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
         _write_version(cache_dir, fresh_ts, SUCCESS_RESULT)
-        result = read_cache(url)
+        result = read_cache(url, 72)
     assert result is not None
     assert result["status"] == "success"
     assert result["html"] == SUCCESS_RESULT["html"]
@@ -144,7 +144,7 @@ def test_read_cache_returns_latest_version(tmp_path):
         _write_version(cache_dir, old_ts, {**SUCCESS_RESULT, "html": "old"})
         new_ts = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
         _write_version(cache_dir, new_ts, {**SUCCESS_RESULT, "html": "new"})
-        result = read_cache(url)
+        result = read_cache(url, 24)
     assert result["html"] == "new"
 
 
@@ -260,7 +260,7 @@ def test_read_cache_bypassed_when_max_size_exceeded(tmp_path):
         _write_version(cache_dir, ts, SUCCESS_RESULT)
 
         # Should return None despite valid cache, because size exceeds limit
-        assert read_cache(url) is None
+        assert read_cache(url, 24) is None
 
 
 # ---------------------------------------------------------------------------

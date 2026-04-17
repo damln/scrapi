@@ -25,8 +25,8 @@ CLOUDFLARE_TIMEOUT_SECONDS = int(os.environ.get("CLOUDFLARE_TIMEOUT_SECONDS", "3
 
 PROXY_URL = os.environ.get("PROXY_URL", "")
 
-# Cache configuration
+# Cache configuration. Caching is opt-in per request via the `cache=<N>h`
+# query parameter; there is no global TTL default.
 CACHE_DIR = os.environ.get("CACHE_DIR", "/cache")
-CACHE_TTL_HOURS = int(os.environ.get("CACHE_TTL_HOURS", "24"))
 CACHE_MAX_VERSIONS = int(os.environ.get("CACHE_MAX_VERSIONS", "5"))
 CACHE_MAX_SIZE_BYTES = int(os.environ.get("CACHE_MAX_SIZE_GB", "20")) * 1024 * 1024 * 1024

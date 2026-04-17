@@ -8,7 +8,7 @@ from pathlib import Path
 
 import shutil
 
-from app.config import CACHE_DIR, CACHE_MAX_SIZE_BYTES, CACHE_MAX_VERSIONS, CACHE_TTL_HOURS
+from app.config import CACHE_DIR, CACHE_MAX_SIZE_BYTES, CACHE_MAX_VERSIONS
 
 logger = logging.getLogger(__name__)
 
@@ -103,8 +103,8 @@ def _list_versions(cache_dir: Path) -> list[Path]:
     return sorted(files, key=lambda f: f.name)
 
 
-def read_cache(cleaned_url: str) -> dict | None:
-    """Return the cached result for a cleaned URL if within TTL, else None."""
+def read_cache(cleaned_url: str, ttl_hours: float) -> dict | None:
+    """Return the cached result for a cleaned URL if within the given TTL, else None."""
     if cache_size_bytes() >= CACHE_MAX_SIZE_BYTES:
         logger.warning("Cache at max size (%d GB limit) — bypassing read for %s", CACHE_MAX_SIZE_BYTES // (1024**3), cleaned_url)
         return None
@@ -122,8 +122,8 @@ def read_cache(cleaned_url: str) -> dict | None:
         return None
 
     age_hours = (datetime.now(timezone.utc) - ts).total_seconds() / 3600
-    if age_hours > CACHE_TTL_HOURS:
-        logger.debug("Cache miss (expired, %.1fh old): %s", age_hours, cleaned_url)
+    if age_hours > ttl_hours:
+        logger.debug("Cache miss (expired, %.1fh old, ttl %.1fh): %s", age_hours, ttl_hours, cleaned_url)
         return None
 
     try:

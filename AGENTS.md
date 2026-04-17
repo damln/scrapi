@@ -40,7 +40,7 @@ Fetch full HTML content from one or more URLs.
 | `no_script` | bool | no | `false` | Remove all inline `<script>` tags (without `src` attribute) |
 | `provider_order` | string | no | `raw,cloudflare,firecrawl` | Comma-separated provider order |
 | `scroll_full` | bool | no | `false` | Scroll full page incrementally to trigger lazy-loaded content. Adds ~5–20s. Supported by `raw` and `cloudflare`; no-op for `firecrawl`. |
-| `force_fetch` | bool | no | `false` | Bypass cache and force a fresh fetch. The result is still written to cache. |
+| `cache` | string | no | — | Opt-in cache TTL, format `<N>h` (e.g. `1h`, `24h`). Absent = cache is not read and nothing is written. When set, a cached result younger than `<N>` hours is served; otherwise the fresh fetch is written to cache. |
 
 **Max 10 URLs per request.**
 
@@ -168,11 +168,9 @@ Clear the entire response cache.
 }
 ```
 
-### `GET /api/v1/agents`
+### `GET /api/v1/agent`
 
-Returns the full content of this `AGENTS.md` file as plain text. Useful for AI agents that consume the scrapi API and need to understand its capabilities, response formats, and error handling at runtime.
-
-**Auth:** Bearer token in `Authorization` header.
+Returns the full content of this `AGENTS.md` file as plain text. Useful for AI agents that consume the scrapi API and need to understand its capabilities, response formats, and error handling at runtime. No auth — intentionally discoverable.
 
 **Response:** Plain text (the raw markdown content of AGENTS.md).
 
@@ -279,17 +277,18 @@ The last provider in the chain returns whatever it fetched, even if validation f
 Single URL:
 
 ```bash
-curl -H "Authorization: Bearer dev-token-change-me" "http://localhost:10700/api/v1/content?urls=https://damln.com"
-
-curl -H "Authorization: Bearer dev-token-change-me" "http://localhost:10700/api/v1/content?urls=https://www.airbnb.com/rooms/1390463594335012333?check_in=2026-07-10&check_out=2026-07-12&photo_id=2198427852&source_impression_id=p3_1774637206_P3sg_i0zJQ6efoL-&previous_page_section_name=1000"
+curl -H "Authorization: Bearer dev-token-change-me" "http://localhost:10700/api/v1/content?urls=https://example.com"
 
 curl -H "Authorization: Bearer dev-token-change-me" "http://localhost:10700/api/v1/content?urls=https://www.nytimes.com/spotlight/lifestyle"
+
+# Opt into a 1h response cache
+curl -H "Authorization: Bearer dev-token-change-me" "http://localhost:10700/api/v1/content?urls=https://example.com&cache=1h"
 ```
 
 Multiple URLs (repeat the `urls` param):
 
 ```bash
-curl -H "Authorization: Bearer dev-token-change-me" "http://localhost:10700/api/v1/content?urls=https://damln.com&urls=https://example.com&urls=https://other.com"
+curl -H "Authorization: Bearer dev-token-change-me" "http://localhost:10700/api/v1/content?urls=https://example.com&urls=https://example.org&urls=https://example.net"
 ```
 
 Asset download (image):
@@ -371,23 +370,23 @@ For production deployment to the server, use the `damian-server` skill (`/damian
 
 ## Residential IP Proxy (SOCKS5 via SSH Reverse Tunnel)
 
-Scrapi routes outbound requests through a MacBook Air's residential IP to avoid datacenter IP blocks. The proxy is optional — if `PROXY_URL` is unset, scrapi uses the server's direct connection.
+Scrapi routes outbound requests through a Macbook Air's residential IP to avoid datacenter IP blocks. The proxy is optional — if `PROXY_URL` is unset, scrapi uses the server's direct connection.
 
 **Architecture:**
 
 ```
-scrapi (Swarm overlay) → socks-relay container (bridge+overlay) → host:1080 (SSH tunnel) → MacBook Air → internet
+scrapi (Swarm overlay) → socks-relay container (bridge+overlay) → host:1080 (SSH tunnel) → Macbook Air → internet
 ```
 
 Three components:
 
-1. **MacBook Air** runs `microsocks` (SOCKS5 proxy) on `127.0.0.1:1080`
-2. **SSH reverse tunnel** from MacBook Air to vela binds `0.0.0.0:1080` on the server, forwarding to the MacBook's microsocks
+1. **Macbook Air** runs `microsocks` (SOCKS5 proxy) on `127.0.0.1:1080`
+2. **SSH reverse tunnel** from Macbook Air to vela binds `0.0.0.0:1080` on the server, forwarding to the Macbook Air's microsocks
 3. **`socks-relay` container** on vela bridges Docker bridge network (can reach host:1080) to the `traefik-public` overlay (scrapi can reach it by name)
 
 **Why the relay container?** Swarm overlay containers are isolated from the host network. The `socks-relay` container runs on the default bridge network (which can reach host ports via `172.17.0.1`) and is also connected to `traefik-public`, so scrapi reaches it at `socks-relay:1080`.
 
-**Start/stop the tunnel (from MacBook Air):**
+**Start/stop the tunnel (from Macbook Air):**
 
 ```bash
 cd ~/scrapi
@@ -396,7 +395,7 @@ cd ~/scrapi
 ./scripts/tunnel.sh status   # Check if running
 ```
 
-**Requirements on MacBook Air:** `brew install microsocks autossh`
+**Requirements on Macbook Air:** `brew install microsocks autossh`
 
 **Manage the socks-relay container (on vela):**
 
@@ -413,7 +412,7 @@ docker exec socks-relay nc -w 3 172.17.0.1 1080  # should connect
 docker restart socks-relay
 
 # Verify IP from server host
-curl -x socks5://127.0.0.1:1080 -s https://api.ipify.org  # should show MacBook's residential IP
+curl -x socks5://127.0.0.1:1080 -s https://api.ipify.org  # should show Macbook Air's residential IP
 ```
 
 **UFW rule on vela:** Port 1080 must be open from the Docker bridge subnet:
@@ -428,9 +427,10 @@ sudo ufw allow from 172.17.0.0/16 to any port 1080 proto tcp comment "SOCKS rela
 
 ## Response Cache
 
-Successful responses are cached to disk as gzip-compressed JSON files. This avoids re-fetching the same URL on repeated requests.
+Successful responses can be cached to disk as gzip-compressed JSON files, opt-in per request via the `cache=<N>h` query parameter.
 
-- **TTL:** 24 hours (configurable via `CACHE_TTL_HOURS`)
+- **Opt-in only:** no caching happens unless `cache` is passed. There is no global TTL.
+- **TTL:** supplied per request (e.g. `cache=1h`, `cache=24h`)
 - **Versions kept:** 5 per URL (configurable via `CACHE_MAX_VERSIONS`), providing a history of past fetches
 - **Max total size:** 20 GB (configurable via `CACHE_MAX_SIZE_GB`). When exceeded, caching is fully disabled (no reads, no writes) until cache is cleared
 - **Cache key:** MD5 hash of the cleaned URL (after tracking param removal and query param sorting)
@@ -440,8 +440,8 @@ Successful responses are cached to disk as gzip-compressed JSON files. This avoi
 - **Docker prod:** named volume `scrapi_cache:/cache` (persistent, shared across replicas)
 
 **Behavior:**
-- By default, a cache hit within TTL is served immediately without contacting any provider
-- `force_fetch=true` bypasses the cache read but still writes the fresh result to cache
+- Without `cache`, every request goes straight to providers and the result is not written to cache
+- With `cache=<N>h`, a cached result younger than N hours is served; otherwise a fresh fetch runs and its successful result is written to cache
 - Only `status: "success"` results are cached. Errors are never cached.
 - `DELETE /api/v1/cache` clears all cached data
 
@@ -456,6 +456,5 @@ Successful responses are cached to disk as gzip-compressed JSON files. This avoi
 - `CLOUDFLARE_ACCOUNT_ID` — Cloudflare account ID
 - `PROXY_URL` — optional, SOCKS5 proxy URL (e.g. `socks5://socks-relay:1080`). Routes raw/asset fetches through the proxy
 - `CACHE_DIR` — cache directory path (default: `/cache`)
-- `CACHE_TTL_HOURS` — cache TTL in hours (default: 24)
 - `CACHE_MAX_VERSIONS` — max versions to keep per URL (default: 5)
 - `CACHE_MAX_SIZE_GB` — max total cache size in GB (default: 20). Cache disabled when exceeded

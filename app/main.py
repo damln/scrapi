@@ -1,3 +1,4 @@
+import re
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -33,6 +34,21 @@ MAX_URLS_PER_REQUEST = 10
 
 VALID_PROVIDERS = {"raw", "cloudflare", "firecrawl"}
 
+_CACHE_PARAM_RE = re.compile(r"^\s*(\d+(?:\.\d+)?)\s*h\s*$", re.IGNORECASE)
+
+
+def _parse_cache_param(value: str | None) -> float | None:
+    """Parse a `cache=<N>h` query value into TTL hours. Returns None for absent/empty."""
+    if value is None or not value.strip():
+        return None
+    match = _CACHE_PARAM_RE.match(value)
+    if not match:
+        raise ValueError(f"Invalid cache format: {value!r}. Expected '<N>h' (e.g. '1h', '24h').")
+    hours = float(match.group(1))
+    if hours <= 0:
+        raise ValueError(f"Cache TTL must be > 0, got {value!r}.")
+    return hours
+
 
 @app.get("/", response_class=PlainTextResponse)
 async def root():
@@ -51,7 +67,7 @@ async def get_content(
     no_script: bool = Query(False, description="Remove all inline script tags"),
     provider_order: str = Query("raw,cloudflare,firecrawl", description="Comma-separated provider order"),
     scroll_full: bool = Query(False, description="Scroll full page to trigger lazy-loaded content"),
-    force_fetch: bool = Query(False, description="Bypass cache and force a fresh fetch"),
+    cache: str | None = Query(None, description="Opt-in cache TTL, e.g. '1h', '24h'. Absent = no cache."),
     _token: str = Depends(verify_token),
 ):
     if len(urls) > MAX_URLS_PER_REQUEST:
@@ -68,7 +84,12 @@ async def get_content(
             "results": [],
         }
 
-    results = await fetch_urls(urls, no_style=no_style, no_script=no_script, provider_order=providers, scroll_full=scroll_full, force_fetch=force_fetch)
+    try:
+        cache_ttl_hours = _parse_cache_param(cache)
+    except ValueError as exc:
+        return {"error": str(exc), "results": []}
+
+    results = await fetch_urls(urls, no_style=no_style, no_script=no_script, provider_order=providers, scroll_full=scroll_full, cache_ttl_hours=cache_ttl_hours)
     return {"results": results}
 
 
@@ -93,10 +114,9 @@ async def delete_cache(
     }
 
 
-@app.get("/api/v1/agents", response_class=PlainTextResponse)
-async def get_agents(
-    _token: str = Depends(verify_token),
-):
+@app.get("/api/v1/agent", response_class=PlainTextResponse)
+async def get_agent():
+    """Public discovery endpoint: raw AGENTS.md for agents to self-describe the API."""
     agents_path = Path(__file__).resolve().parent.parent / "AGENTS.md"
     return agents_path.read_text(encoding="utf-8")
 

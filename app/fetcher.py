@@ -200,12 +200,17 @@ async def _try_provider(
     return None, None, None, None, None
 
 
-async def fetch_single_url(raw_url: str, no_style: bool = False, no_script: bool = False, provider_order: list[str] | None = None, scroll_full: bool = False, force_fetch: bool = False) -> dict:
-    """Fetch a URL trying providers in the given order. Serves from cache when available."""
+async def fetch_single_url(raw_url: str, no_style: bool = False, no_script: bool = False, provider_order: list[str] | None = None, scroll_full: bool = False, cache_ttl_hours: float | None = None) -> dict:
+    """Fetch a URL trying providers in the given order.
+
+    When `cache_ttl_hours` is set, a cached result is served if within that TTL,
+    and a successful fresh fetch is written to cache. When None, cache is not
+    consulted and nothing is written.
+    """
     url = clean_url(raw_url)
 
-    if not force_fetch:
-        cached = await asyncio.to_thread(read_cache, url)
+    if cache_ttl_hours is not None:
+        cached = await asyncio.to_thread(read_cache, url, cache_ttl_hours)
         if cached is not None:
             cached["raw_url"] = raw_url
             return cached
@@ -226,7 +231,7 @@ async def fetch_single_url(raw_url: str, no_style: bool = False, no_script: bool
             "html": None,
         }
 
-    if result.get("status") == "success":
+    if cache_ttl_hours is not None and result.get("status") == "success":
         await asyncio.to_thread(write_cache, url, result)
 
     return result
@@ -310,7 +315,7 @@ def _success(url: str, raw_url: str, html: str, provider: str, scores: dict | No
     return result
 
 
-async def fetch_urls(urls: list[str], no_style: bool = False, no_script: bool = False, provider_order: list[str] | None = None, scroll_full: bool = False, force_fetch: bool = False) -> list[dict]:
+async def fetch_urls(urls: list[str], no_style: bool = False, no_script: bool = False, provider_order: list[str] | None = None, scroll_full: bool = False, cache_ttl_hours: float | None = None) -> list[dict]:
     """Fetch multiple URLs concurrently with fallback chain."""
-    tasks = [fetch_single_url(url, no_style, no_script, provider_order, scroll_full=scroll_full, force_fetch=force_fetch) for url in urls]
+    tasks = [fetch_single_url(url, no_style, no_script, provider_order, scroll_full=scroll_full, cache_ttl_hours=cache_ttl_hours) for url in urls]
     return await asyncio.gather(*tasks)
