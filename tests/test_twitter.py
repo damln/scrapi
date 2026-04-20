@@ -611,6 +611,51 @@ def test_syndication_fallback_when_fxtwitter_and_oembed_fail(client):
     result = resp.json()["results"][0]
     assert result["status"] == "success"
     assert result["provider"] == "twitter"
+    assert result["twitter_source"] == "syndication"
     assert "Hello from syndication" in result["html"]
     assert "Fallback Title" in result["html"]
     assert "A short preview" in result["html"]
+
+
+# ---------------------------------------------------------------------------
+# twitter_source labelling — lets memex (and other downstream consumers)
+# record which fetch path produced the content, so they can tell a rich
+# fxtwitter result from a thin oEmbed stub without content-sniffing.
+# ---------------------------------------------------------------------------
+
+
+@respx.mock
+def test_twitter_source_is_fxtwitter_on_happy_path(client):
+    respx.get("https://api.fxtwitter.com/testuser/status/123456").mock(
+        return_value=Response(200, json=FXTWITTER_RESPONSE)
+    )
+
+    resp = client.get(
+        "/api/v1/content",
+        params={"urls": "https://x.com/testuser/status/123456"},
+        headers=AUTH_HEADER,
+    )
+
+    result = resp.json()["results"][0]
+    assert result["provider"] == "twitter"
+    assert result["twitter_source"] == "fxtwitter"
+
+
+@respx.mock
+def test_twitter_source_is_oembed_when_fxtwitter_fails(client):
+    respx.get("https://api.fxtwitter.com/user/status/888").mock(
+        return_value=Response(500, text="boom")
+    )
+    respx.get("https://publish.twitter.com/oembed").mock(
+        return_value=Response(200, json=OEMBED_RESPONSE)
+    )
+
+    resp = client.get(
+        "/api/v1/content",
+        params={"urls": "https://x.com/user/status/888"},
+        headers=AUTH_HEADER,
+    )
+
+    result = resp.json()["results"][0]
+    assert result["provider"] == "twitter"
+    assert result["twitter_source"] == "oembed"

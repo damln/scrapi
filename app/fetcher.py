@@ -293,10 +293,29 @@ async def _try_special_fetcher(url: str, raw_url: str) -> dict | None:
     html = result["html"]
     head_meta = extract_head_meta(html)
     markdown = html_to_markdown(html)
-    return _success(url, raw_url, html, result["provider"], None, head_meta, markdown)
+    return _success(
+        url,
+        raw_url,
+        html,
+        result["provider"],
+        None,
+        head_meta,
+        markdown,
+        twitter_source=result.get("twitter_source"),
+    )
 
 
-def _success(url: str, raw_url: str, html: str, provider: str, scores: dict | None = None, head_meta: dict | None = None, markdown: str | None = None, http_metadata: dict | None = None) -> dict:
+def _success(
+    url: str,
+    raw_url: str,
+    html: str,
+    provider: str,
+    scores: dict | None = None,
+    head_meta: dict | None = None,
+    markdown: str | None = None,
+    http_metadata: dict | None = None,
+    twitter_source: str | None = None,
+) -> dict:
     result = {
         "url": url,
         "raw_url": raw_url,
@@ -312,6 +331,11 @@ def _success(url: str, raw_url: str, html: str, provider: str, scores: dict | No
         result["markdown"] = markdown
     if http_metadata:
         result["http"] = http_metadata
+    # Sub-provider identifier for Twitter — lets downstream consumers tell
+    # fxtwitter (rich) from oembed (thin) from syndication (fallback) apart
+    # without having to content-sniff the HTML.
+    if twitter_source:
+        result["twitter_source"] = twitter_source
     return result
 
 

@@ -277,7 +277,7 @@ def _build_fxtwitter_result(url: str, tweet: dict, thread_parents: list[dict] | 
 </body>
 </html>"""
 
-    return {"html": html.strip(), "title": title, "provider": "twitter"}
+    return {"html": html.strip(), "title": title, "provider": "twitter", "twitter_source": "fxtwitter"}
 
 
 def _render_ancestor(parent: dict) -> str:
@@ -413,7 +413,7 @@ async def _fetch_oembed(url: str) -> dict | None:
 <body>{embed_html}</body>
 </html>"""
 
-            return {"html": html.strip(), "title": title, "provider": "twitter"}
+            return {"html": html.strip(), "title": title, "provider": "twitter", "twitter_source": "oembed"}
         except Exception as e:
             logger.warning("twitter oEmbed error for %s: %s (attempt %d/%d)", url, e, attempt + 1, RETRY_ATTEMPTS)
             if attempt < RETRY_ATTEMPTS - 1:
@@ -622,4 +622,4 @@ async def _fetch_syndication(url: str) -> dict | None:
 </body>
 </html>"""
 
-    return {"html": html.strip(), "title": title, "provider": "twitter"}
+    return {"html": html.strip(), "title": title, "provider": "twitter", "twitter_source": "syndication"}

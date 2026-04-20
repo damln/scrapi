@@ -46,6 +46,8 @@ Fetch full HTML content from one or more URLs.
 
 **Valid providers:** `raw`, `cloudflare`, `firecrawl`
 
+**Twitter sub-provider (`twitter_source`):** present only when `provider == "twitter"`. One of `"fxtwitter"` (rich — full tweet, thread ancestors, QRTs, article blocks), `"oembed"` (thin — blockquote of tweet text, no article body), or `"syndication"` (fallback — text + article preview only). Downstream consumers can use this to track which path produced the content without content-sniffing the HTML.
+
 **Response:**
 
 ```json
@@ -70,6 +72,7 @@ Fetch full HTML content from one or more URLs.
         "canonical": "https://example.com/page"
       },
       "markdown": "# Example Page\n\nThis is the page content...",
+      "twitter_source": "fxtwitter",
       "http": {
         "status": 200,
         "headers": {"content-type": "text/html; charset=utf-8", "...": "..."},
