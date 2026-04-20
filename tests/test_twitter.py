@@ -416,3 +416,201 @@ def test_fxtwitter_sends_browser_user_agent(client):
     ua = route.calls.last.request.headers.get("user-agent", "")
     assert "python-httpx" not in ua.lower()
     assert "Mozilla/5.0" in ua
+
+
+# ---------------------------------------------------------------------------
+# Thread reconstruction: fxtwitter gives us `replying_to_status` — we walk
+# it to include the parent conversation in the output so a bare-link reply
+# (like https://x.com/gregpr07/status/2045566284319134008) surfaces the
+# original announcement instead of just the t.co URL.
+# ---------------------------------------------------------------------------
+
+
+LEAF_REPLY_RESPONSE = {
+    "tweet": {
+        "id": "2045566284319134008",
+        "text": "github.com/browser-use/browser-harness",
+        "created_at": "Sat Apr 18 18:13:01 +0000 2026",
+        "author": {"name": "Gregor Zunic", "screen_name": "gregpr07", "avatar_url": ""},
+        "replying_to": "gregpr07",
+        "replying_to_status": "2045566281991311483",
+        "views": 34306,
+        "likes": 373,
+        "retweets": 9,
+    }
+}
+
+PARENT_ANNOUNCEMENT_RESPONSE = {
+    "tweet": {
+        "id": "2045566281991311483",
+        "text": "Introducing: Browser Harness. A self-healing harness that can complete virtually any browser task.",
+        "created_at": "Sat Apr 18 18:12:55 +0000 2026",
+        "author": {"name": "Gregor Zunic", "screen_name": "gregpr07", "avatar_url": ""},
+    }
+}
+
+
+@respx.mock
+def test_fxtwitter_walks_thread_parent(client):
+    respx.get("https://api.fxtwitter.com/gregpr07/status/2045566284319134008").mock(
+        return_value=Response(200, json=LEAF_REPLY_RESPONSE)
+    )
+    parent_route = respx.get("https://api.fxtwitter.com/_/status/2045566281991311483").mock(
+        return_value=Response(200, json=PARENT_ANNOUNCEMENT_RESPONSE)
+    )
+
+    resp = client.get(
+        "/api/v1/content",
+        params={"urls": "https://x.com/gregpr07/status/2045566284319134008"},
+        headers=AUTH_HEADER,
+    )
+
+    assert parent_route.called, "parent tweet must be fetched when replying_to_status is set"
+    result = resp.json()["results"][0]
+    assert result["status"] == "success"
+    assert "Introducing: Browser Harness" in result["html"]
+    assert "thread-ancestor" in result["html"]
+    # Parent content should also reach the markdown conversion path.
+    assert "Introducing: Browser Harness" in (result.get("markdown") or "")
+
+
+@respx.mock
+def test_fxtwitter_title_falls_back_to_root_when_leaf_is_bare_link(client):
+    """Leaf text is just a t.co link; title should come from the root parent."""
+    respx.get("https://api.fxtwitter.com/gregpr07/status/2045566284319134008").mock(
+        return_value=Response(200, json={
+            "tweet": {
+                **LEAF_REPLY_RESPONSE["tweet"],
+                "text": "https://t.co/abc",
+            }
+        })
+    )
+    respx.get("https://api.fxtwitter.com/_/status/2045566281991311483").mock(
+        return_value=Response(200, json=PARENT_ANNOUNCEMENT_RESPONSE)
+    )
+
+    resp = client.get(
+        "/api/v1/content",
+        params={"urls": "https://x.com/gregpr07/status/2045566284319134008"},
+        headers=AUTH_HEADER,
+    )
+
+    result = resp.json()["results"][0]
+    assert "Browser Harness" in result["head_meta"]["title"]
+
+
+@respx.mock
+def test_fxtwitter_thread_walk_stops_at_cycle(client):
+    """Defensive: a parent that points at the leaf must not trigger an infinite
+    fetch loop — we dedupe by tweet id in the walker."""
+    leaf = {
+        "tweet": {
+            "id": "100",
+            "text": "leaf",
+            "author": {"name": "A", "screen_name": "a"},
+            "replying_to_status": "200",
+        }
+    }
+    # Parent's replying_to_status cycles back to the leaf.
+    parent = {
+        "tweet": {
+            "id": "200",
+            "text": "parent",
+            "author": {"name": "B", "screen_name": "b"},
+            "replying_to_status": "100",
+        }
+    }
+    respx.get("https://api.fxtwitter.com/a/status/100").mock(
+        return_value=Response(200, json=leaf)
+    )
+    parent_route = respx.get("https://api.fxtwitter.com/_/status/200").mock(
+        return_value=Response(200, json=parent)
+    )
+    # The loop-back fetch for the leaf must NOT happen — the walker sees id 100
+    # in the seen-set and stops.
+    loop_route = respx.get("https://api.fxtwitter.com/_/status/100").mock(
+        return_value=Response(200, json=leaf)
+    )
+
+    client.get(
+        "/api/v1/content",
+        params={"urls": "https://x.com/a/status/100"},
+        headers=AUTH_HEADER,
+    )
+
+    assert parent_route.called
+    assert not loop_route.called
+
+
+# ---------------------------------------------------------------------------
+# Quote tweet (QRT) rendering
+# ---------------------------------------------------------------------------
+
+
+@respx.mock
+def test_fxtwitter_quoted_tweet_rendered(client):
+    respx.get("https://api.fxtwitter.com/user/status/500").mock(
+        return_value=Response(200, json={
+            "tweet": {
+                "id": "500",
+                "text": "Worth reading:",
+                "author": {"name": "Reader", "screen_name": "reader"},
+                "quote": {
+                    "id": "499",
+                    "text": "A spicy take that deserves a boost.",
+                    "author": {"name": "Original", "screen_name": "original"},
+                },
+            }
+        })
+    )
+
+    resp = client.get(
+        "/api/v1/content",
+        params={"urls": "https://x.com/user/status/500"},
+        headers=AUTH_HEADER,
+    )
+
+    result = resp.json()["results"][0]
+    assert "quoted-tweet" in result["html"]
+    assert "A spicy take that deserves a boost" in result["html"]
+    assert "@original" in result["html"]
+
+
+# ---------------------------------------------------------------------------
+# Syndication fallback (tertiary, after fxtwitter + oEmbed both fail)
+# ---------------------------------------------------------------------------
+
+
+@respx.mock
+def test_syndication_fallback_when_fxtwitter_and_oembed_fail(client):
+    # fxtwitter down
+    respx.get("https://api.fxtwitter.com/user/status/777").mock(
+        return_value=Response(500, text="boom")
+    )
+    # oEmbed down
+    respx.get("https://publish.twitter.com/oembed").mock(
+        return_value=Response(500, text="boom")
+    )
+    # syndication works, returns text + article preview
+    synd_route = respx.get("https://cdn.syndication.twimg.com/tweet-result").mock(
+        return_value=Response(200, json={
+            "text": "Hello from syndication",
+            "created_at": "2026-04-19T20:09:22.000Z",
+            "user": {"name": "Syn Author", "screen_name": "synauthor"},
+            "article": {"title": "Fallback Title", "preview_text": "A short preview."},
+        })
+    )
+
+    resp = client.get(
+        "/api/v1/content",
+        params={"urls": "https://x.com/user/status/777"},
+        headers=AUTH_HEADER,
+    )
+
+    assert synd_route.called
+    result = resp.json()["results"][0]
+    assert result["status"] == "success"
+    assert result["provider"] == "twitter"
+    assert "Hello from syndication" in result["html"]
+    assert "Fallback Title" in result["html"]
+    assert "A short preview" in result["html"]
