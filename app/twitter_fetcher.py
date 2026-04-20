@@ -6,6 +6,8 @@ from urllib.parse import urlparse
 
 import httpx
 
+from app.config import PROXY_URL
+
 logger = logging.getLogger(__name__)
 
 TWITTER_HOSTS = {"twitter.com", "www.twitter.com", "x.com", "www.x.com"}
@@ -16,12 +18,31 @@ RETRY_ATTEMPTS = 2
 RETRY_DELAY_S = 2.0
 RETRYABLE_STATUSES = {429, 500, 502, 503, 504}
 
+# fxtwitter sits behind Cloudflare, which 403s httpx's default "python-httpx/*"
+# User-Agent. A real desktop-browser UA avoids the challenge and mirrors what
+# asset_fetcher already uses. The oEmbed endpoint is also happier with it.
+_DEFAULT_HEADERS = {
+    "User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+    "Accept": "application/json, */*;q=0.8",
+}
+
 _client: httpx.AsyncClient | None = None
 
 
 def init_client():
     global _client
-    _client = httpx.AsyncClient(timeout=FETCH_TIMEOUT, follow_redirects=False)
+    kwargs = dict(
+        timeout=FETCH_TIMEOUT,
+        follow_redirects=False,
+        headers=_DEFAULT_HEADERS,
+    )
+    # Route Twitter API calls through the residential SOCKS5 proxy when
+    # configured. Vela's datacenter IP is flagged by Cloudflare's bot scoring,
+    # so going through the Macbook Air's residential IP keeps fxtwitter happy
+    # even if the UA heuristic shifts again.
+    if PROXY_URL:
+        kwargs["proxy"] = PROXY_URL
+    _client = httpx.AsyncClient(**kwargs)
 
 
 async def close_client():

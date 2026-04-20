@@ -391,3 +391,28 @@ def test_www_x_com_domain(client):
     result = resp.json()["results"][0]
     assert result["status"] == "success"
     assert result["provider"] == "twitter"
+
+
+# ---------------------------------------------------------------------------
+# Outgoing request: browser UA (Cloudflare in front of fxtwitter 403s the
+# default httpx UA, which caused every article tweet to silently degrade to
+# the oEmbed stub — see twitter_fetcher.py comment).
+# ---------------------------------------------------------------------------
+
+
+@respx.mock
+def test_fxtwitter_sends_browser_user_agent(client):
+    route = respx.get("https://api.fxtwitter.com/testuser/status/123456").mock(
+        return_value=Response(200, json=FXTWITTER_RESPONSE)
+    )
+
+    client.get(
+        "/api/v1/content",
+        params={"urls": "https://x.com/testuser/status/123456"},
+        headers=AUTH_HEADER,
+    )
+
+    assert route.called
+    ua = route.calls.last.request.headers.get("user-agent", "")
+    assert "python-httpx" not in ua.lower()
+    assert "Mozilla/5.0" in ua

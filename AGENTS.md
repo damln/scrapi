@@ -421,7 +421,7 @@ curl -x socks5://127.0.0.1:1080 -s https://api.ipify.org  # should show Macbook 
 sudo ufw allow from 172.17.0.0/16 to any port 1080 proto tcp comment "SOCKS relay from Docker bridge"
 ```
 
-**What gets proxied:** Only the raw provider (Scrapling) and asset fetcher. API fetchers (Cloudflare, Firecrawl, Twitter, YouTube) are not proxied — they call external APIs, not target websites.
+**What gets proxied:** The raw provider (Scrapling), the asset fetcher, and the Twitter fetcher. Cloudflare, Firecrawl and YouTube fetchers are not proxied — they call external APIs from datacenter-friendly endpoints. Twitter is proxied because `api.fxtwitter.com` is behind Cloudflare and has 403'd vela's datacenter IP / httpx UA combo in the past; routing through the Macbook Air's residential IP plus a desktop-browser UA keeps it reliable.
 
 **`GatewayPorts`:** The server's `/etc/ssh/sshd_config` has `GatewayPorts clientspecified` to allow the tunnel to bind to `0.0.0.0` (required for Docker bridge access).
 
