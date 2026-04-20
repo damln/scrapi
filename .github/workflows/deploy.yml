@@ -1,0 +1,25 @@
+name: Deploy
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  deploy:
+    uses: damln/deploy-workflows/.github/workflows/build-and-deploy.yml@main
+    with:
+      app_name: scrapi
+      deploy_host: vela
+      dockerfile: Dockerfile
+      service_name: app          # compose service is `app`, not `web`
+      env_file: ""               # server already has canonical .env / .env.production
+    secrets:
+      SSH_KEY: ${{ secrets.VELA_SSH_KEY }}
+      SSH_HOST: ${{ secrets.VELA_HOST }}
+      SSH_PORT: ${{ secrets.VELA_PORT }}
+      SSH_USER: ${{ secrets.VELA_USER }}
