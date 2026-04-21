@@ -1,15 +1,14 @@
 import asyncio
-import concurrent.futures
-import functools
+import json
 import logging
-
-from scrapling.fetchers import StealthyFetcher
+import os
+import signal
+import sys
 
 from app.cache import read_cache, write_cache
 from app.cloudflare_fetcher import fetch_with_cloudflare
-from app.config import CLOUDFLARE_API_KEY, FETCH_SINGLE_URL_TIMEOUT_S, FIRECRAWL_API_KEY, PROVIDER_HARD_TIMEOUT_S, PROXY_URL, SCRAPLING_MAX_CONCURRENT, SCRAPLING_TIMEOUT_MS
+from app.config import CLOUDFLARE_API_KEY, FETCH_SINGLE_URL_TIMEOUT_S, FIRECRAWL_API_KEY, PROVIDER_HARD_TIMEOUT_S, SCRAPLING_MAX_CONCURRENT
 from app.content_validator import validate_content
-from app.cookie_dismiss import dismiss_cookies
 from app.firecrawl_fetcher import fetch_with_firecrawl
 from app.html_rewriter import extract_head_meta, html_to_markdown, make_links_absolute, strip_inline_scripts, strip_inline_styles, strip_large_styles
 from app.twitter_fetcher import fetch_twitter, is_twitter_url
@@ -18,19 +17,10 @@ from app.youtube_fetcher import fetch_youtube, is_youtube_url
 
 logger = logging.getLogger(__name__)
 
-_thread_pool = concurrent.futures.ThreadPoolExecutor(
-    max_workers=SCRAPLING_MAX_CONCURRENT, thread_name_prefix="scrapling"
-)
-
 _scrapling_semaphore: asyncio.Semaphore | None = None
 
 SCRAPLING_RETRY_ATTEMPTS = 2
 SCRAPLING_RETRY_DELAY_S = 1.0
-
-SCROLL_STEP_PX = 800
-SCROLL_DELAY_MS = 400
-SCROLL_MAX_ITERATIONS = 40
-SCROLL_SETTLE_MS = 1500
 
 
 def _get_scrapling_semaphore() -> asyncio.Semaphore:
@@ -58,69 +48,58 @@ def _post_process(html: str, url: str, no_style: bool, no_script: bool) -> tuple
     return html, head_meta, markdown
 
 
-def scroll_full_page(page):
-    """Scroll the full page incrementally to trigger lazy-loaded content."""
-    prev_height = page.evaluate("document.body.scrollHeight")
-
-    for _ in range(SCROLL_MAX_ITERATIONS):
-        current_pos = page.evaluate("window.pageYOffset")
-        page.evaluate(f"window.scrollTo(0, {current_pos + SCROLL_STEP_PX})")
-        page.wait_for_timeout(SCROLL_DELAY_MS)
-
-        new_height = page.evaluate("document.body.scrollHeight")
-        reached_bottom = page.evaluate(
-            "window.pageYOffset + window.innerHeight >= document.body.scrollHeight - 50"
-        )
-        if reached_bottom and new_height == prev_height:
-            break
-        prev_height = new_height
-
-    page.wait_for_timeout(SCROLL_SETTLE_MS)
-    page.evaluate("window.scrollTo(0, 0)")
-    return page
+def _killpg(pid: int) -> None:
+    """SIGKILL the process group for pid. Safe if the group is already gone."""
+    try:
+        pgid = os.getpgid(pid)
+    except ProcessLookupError:
+        return
+    try:
+        os.killpg(pgid, signal.SIGKILL)
+    except ProcessLookupError:
+        pass
+    except PermissionError as exc:
+        logger.warning("killpg(%s) denied: %s", pgid, exc)
 
 
-def dismiss_cookies_and_scroll(page):
-    """Cookie dismissal followed by full-page scroll for lazy-load triggering."""
-    page = dismiss_cookies(page)
-    page = scroll_full_page(page)
-    return page
+async def _fetch_with_scrapling(url: str, scroll_full: bool = False) -> tuple[str, dict]:
+    """Fetch using StealthyFetcher inside a killable subprocess.
 
+    The fetch runs in `python -m app.fetcher_worker`. On cancellation or
+    timeout the entire process group is SIGKILL'd so camoufox browsers
+    can't linger — the old thread-pool approach leaked them because a
+    thread stuck in C code ignores asyncio cancellation.
+    """
+    cmd = [sys.executable, "-m", "app.fetcher_worker", url]
+    if scroll_full:
+        cmd.append("--scroll-full")
 
-def _extract_http_metadata(page) -> dict:
-    """Extract HTTP status, headers, and redirect history from a Scrapling Response."""
-    history = []
-    for entry in getattr(page, "history", []) or []:
-        h = {"status": getattr(entry, "status", None), "url": getattr(entry, "url", None)}
-        entry_headers = getattr(entry, "headers", None)
-        if entry_headers:
-            h["headers"] = dict(entry_headers)
-        history.append(h)
-
-    headers = getattr(page, "headers", None)
-    return {
-        "status": getattr(page, "status", None),
-        "headers": dict(headers) if headers else None,
-        "redirect_history": history if history else None,
-    }
-
-
-def _fetch_with_scrapling(url: str, scroll_full: bool = False) -> tuple[str, dict]:
-    """Fetch using StealthyFetcher. Raises on failure. Returns (html, http_metadata)."""
-    action = dismiss_cookies_and_scroll if scroll_full else dismiss_cookies
-    fetch_kwargs = dict(
-        headless=True,
-        network_idle=True,
-        timeout=SCRAPLING_TIMEOUT_MS,
-        page_action=action,
-        disable_ads=True,
+    # start_new_session=True puts the child in its own process group, so
+    # one killpg call reaches camoufox and every helper it spawns.
+    proc = await asyncio.create_subprocess_exec(
+        *cmd,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+        start_new_session=True,
     )
-    if PROXY_URL:
-        fetch_kwargs["proxy"] = PROXY_URL
-    page = StealthyFetcher.fetch(url, **fetch_kwargs)
-    html = page.body if isinstance(page.body, str) else page.body.decode("utf-8", errors="replace")
-    http_metadata = _extract_http_metadata(page)
-    return html, http_metadata
+
+    try:
+        stdout, stderr = await proc.communicate()
+    except asyncio.CancelledError:
+        _killpg(proc.pid)
+        # Reap so the OS doesn't hold a zombie.
+        try:
+            await asyncio.wait_for(proc.wait(), timeout=3)
+        except asyncio.TimeoutError:
+            pass
+        raise
+
+    if proc.returncode != 0:
+        err = stderr.decode("utf-8", errors="replace").strip()
+        raise RuntimeError(f"fetcher_worker exit {proc.returncode}: {err[:500]}")
+
+    result = json.loads(stdout.decode("utf-8", errors="replace"))
+    return result["html"], result.get("http_metadata") or {}
 
 
 DEFAULT_PROVIDER_ORDER = ["raw", "cloudflare", "firecrawl"]
@@ -132,7 +111,7 @@ PROVIDER_API_KEYS = {
 
 
 async def _try_provider(
-    provider: str, url: str, no_style: bool, no_script: bool, loop, is_last: bool = False, scroll_full: bool = False,
+    provider: str, url: str, no_style: bool, no_script: bool, is_last: bool = False, scroll_full: bool = False,
 ) -> tuple[str | None, dict | None, dict | None, str | None, dict | None]:
     """Try a single provider. Returns (html, scores, head_meta, markdown, http_metadata) on success, (None, None, None, None, None) on failure.
 
@@ -152,10 +131,9 @@ async def _try_provider(
 
             if provider == "raw":
                 sem = _get_scrapling_semaphore()
-                fn = functools.partial(_fetch_with_scrapling, url, scroll_full=scroll_full)
                 async with sem:
                     html, http_metadata = await asyncio.wait_for(
-                        loop.run_in_executor(_thread_pool, fn),
+                        _fetch_with_scrapling(url, scroll_full=scroll_full),
                         timeout=PROVIDER_HARD_TIMEOUT_S,
                     )
             elif provider == "cloudflare":
@@ -245,11 +223,10 @@ async def _fetch_single_url_inner(url: str, raw_url: str, no_style: bool, no_scr
         return special_result
 
     providers = provider_order or DEFAULT_PROVIDER_ORDER
-    loop = asyncio.get_event_loop()
 
     for i, provider in enumerate(providers):
         is_last = i == len(providers) - 1
-        html, scores, head_meta, markdown, http_metadata = await _try_provider(provider, url, no_style, no_script, loop, is_last, scroll_full=scroll_full)
+        html, scores, head_meta, markdown, http_metadata = await _try_provider(provider, url, no_style, no_script, is_last, scroll_full=scroll_full)
         if html is not None:
             return _success(url, raw_url, html, provider, scores, head_meta, markdown, http_metadata)
 

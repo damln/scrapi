@@ -1,4 +1,4 @@
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 import respx
 from httpx import Response
@@ -14,7 +14,7 @@ SIMPLE_HTML = "<html><head><title>Test</title></head><body><p>Hello</p></body></
 # ---------------------------------------------------------------------------
 
 
-@patch("app.fetcher._fetch_with_scrapling")
+@patch("app.fetcher._fetch_with_scrapling", new_callable=AsyncMock)
 def test_content_raw_provider_returns_http_metadata(mock_fetch, client):
     mock_fetch.return_value = (
         SIMPLE_HTML,
@@ -39,7 +39,7 @@ def test_content_raw_provider_returns_http_metadata(mock_fetch, client):
     assert result["http"]["redirect_history"] is None
 
 
-@patch("app.fetcher._fetch_with_scrapling")
+@patch("app.fetcher._fetch_with_scrapling", new_callable=AsyncMock)
 def test_content_raw_provider_with_redirect_history(mock_fetch, client):
     mock_fetch.return_value = (
         SIMPLE_HTML,
