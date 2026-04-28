@@ -72,6 +72,57 @@ def test_content_raw_provider_with_redirect_history(mock_fetch, client):
     assert http["redirect_history"][0]["headers"]["location"] == "https://example.com"
 
 
+@patch("app.fetcher._fetch_with_scrapling", new_callable=AsyncMock)
+def test_content_raw_provider_forwards_wait_options(mock_fetch, client):
+    mock_fetch.return_value = (
+        SIMPLE_HTML,
+        {
+            "status": 200,
+            "headers": {"content-type": "text/html"},
+            "redirect_history": None,
+        },
+    )
+
+    resp = client.get(
+        "/api/v1/content",
+        params={
+            "urls": "https://example.com",
+            "provider_order": "raw",
+            "wait_until": "networkidle",
+            "wait_for_selector": ".listing-card",
+        },
+        headers=AUTH_HEADER,
+    )
+
+    assert resp.status_code == 200
+    mock_fetch.assert_awaited_once_with(
+        "https://example.com",
+        scroll_full=False,
+        wait_until="networkidle",
+        wait_for_selector=".listing-card",
+    )
+    result = resp.json()["results"][0]
+    assert result["status"] == "success"
+    assert result["provider"] == "raw"
+
+
+def test_content_rejects_invalid_wait_until(client):
+    resp = client.get(
+        "/api/v1/content",
+        params={
+            "urls": "https://example.com",
+            "provider_order": "raw",
+            "wait_until": "domcontentloaded",
+        },
+        headers=AUTH_HEADER,
+    )
+
+    assert resp.status_code == 200
+    payload = resp.json()
+    assert "Invalid wait_until" in payload["error"]
+    assert payload["results"] == []
+
+
 # ---------------------------------------------------------------------------
 # /api/v1/content — cloudflare/firecrawl have no http metadata
 # ---------------------------------------------------------------------------

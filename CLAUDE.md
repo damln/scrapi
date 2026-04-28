@@ -40,6 +40,8 @@ Fetch full HTML content from one or more URLs.
 | `no_script` | bool | no | `false` | Remove all inline `<script>` tags (without `src` attribute) |
 | `provider_order` | string | no | `raw,cloudflare,firecrawl` | Comma-separated provider order |
 | `scroll_full` | bool | no | `false` | Scroll full page incrementally to trigger lazy-loaded content. Adds ~5–20s. Supported by `raw` and `cloudflare`; no-op for `firecrawl`. |
+| `wait_until` | string | no | — | Raw provider only. Supported: `networkidle`. |
+| `wait_for_selector` | string | no | — | Raw provider only. CSS selector to wait for before reading the page HTML. |
 | `cache` | string | no | — | Opt-in cache TTL, format `<N>h` (e.g. `1h`, `24h`). Absent = cache is not read and nothing is written. When set, a cached result younger than `<N>` hours is served; otherwise the fresh fetch is written to cache. |
 
 **Max 10 URLs per request.**

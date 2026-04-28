@@ -8,7 +8,7 @@ fetch in a subprocess and SIGKILL'ing its process group on timeout is the
 only reliable cleanup path.
 
 CLI:
-    python -m app.fetcher_worker <url> [--scroll-full]
+    python -m app.fetcher_worker <url> [--scroll-full] [--wait-until networkidle] [--wait-for-selector ".item"]
 
 Stdout on success:
     {"html": "...", "http_metadata": {...}}
@@ -76,15 +76,18 @@ def _extract_http_metadata(page) -> dict:
     }
 
 
-def fetch(url: str, scroll_full: bool) -> dict:
+def fetch(url: str, scroll_full: bool, wait_until: str | None = None, wait_for_selector: str | None = None) -> dict:
     action = _dismiss_cookies_and_scroll if scroll_full else dismiss_cookies
+    network_idle = True if wait_until is None else wait_until == "networkidle"
     fetch_kwargs = dict(
         headless=True,
-        network_idle=True,
+        network_idle=network_idle,
         timeout=SCRAPLING_TIMEOUT_MS,
         page_action=action,
         disable_ads=True,
     )
+    if wait_for_selector:
+        fetch_kwargs["wait_selector"] = wait_for_selector
     if PROXY_URL:
         fetch_kwargs["proxy"] = PROXY_URL
 
@@ -98,10 +101,12 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="One-shot StealthyFetcher subprocess")
     parser.add_argument("url")
     parser.add_argument("--scroll-full", action="store_true")
+    parser.add_argument("--wait-until", choices=["networkidle"])
+    parser.add_argument("--wait-for-selector")
     args = parser.parse_args()
 
     try:
-        result = fetch(args.url, args.scroll_full)
+        result = fetch(args.url, args.scroll_full, args.wait_until, args.wait_for_selector)
     except Exception as exc:  # noqa: BLE001 — parent wraps this as a generic fetch failure
         sys.stderr.write(f"{type(exc).__name__}: {exc}\n")
         return 1

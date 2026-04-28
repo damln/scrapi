@@ -33,6 +33,7 @@ app = FastAPI(docs_url=None, redoc_url=None, openapi_url=None, lifespan=lifespan
 MAX_URLS_PER_REQUEST = 10
 
 VALID_PROVIDERS = {"raw", "cloudflare", "firecrawl"}
+VALID_WAIT_UNTIL = {"networkidle"}
 
 _CACHE_PARAM_RE = re.compile(r"^\s*(\d+(?:\.\d+)?)\s*h\s*$", re.IGNORECASE)
 
@@ -67,6 +68,8 @@ async def get_content(
     no_script: bool = Query(False, description="Remove all inline script tags"),
     provider_order: str = Query("raw,cloudflare,firecrawl", description="Comma-separated provider order"),
     scroll_full: bool = Query(False, description="Scroll full page to trigger lazy-loaded content"),
+    wait_until: str | None = Query(None, description="Raw provider only. Supports: networkidle"),
+    wait_for_selector: str | None = Query(None, description="Raw provider only. Wait for CSS selector before reading HTML"),
     cache: str | None = Query(None, description="Opt-in cache TTL, e.g. '1h', '24h'. Absent = no cache."),
     _token: str = Depends(verify_token),
 ):
@@ -84,12 +87,33 @@ async def get_content(
             "results": [],
         }
 
+    normalized_wait_until = None
+    if wait_until is not None:
+        candidate = wait_until.strip().lower()
+        if candidate and candidate not in VALID_WAIT_UNTIL:
+            return {
+                "error": f"Invalid wait_until: {wait_until!r}. Valid: networkidle",
+                "results": [],
+            }
+        normalized_wait_until = candidate or None
+
+    wait_for_selector = (wait_for_selector or "").strip() or None
+
     try:
         cache_ttl_hours = _parse_cache_param(cache)
     except ValueError as exc:
         return {"error": str(exc), "results": []}
 
-    results = await fetch_urls(urls, no_style=no_style, no_script=no_script, provider_order=providers, scroll_full=scroll_full, cache_ttl_hours=cache_ttl_hours)
+    results = await fetch_urls(
+        urls,
+        no_style=no_style,
+        no_script=no_script,
+        provider_order=providers,
+        scroll_full=scroll_full,
+        wait_until=normalized_wait_until,
+        wait_for_selector=wait_for_selector,
+        cache_ttl_hours=cache_ttl_hours,
+    )
     return {"results": results}
 
 

@@ -62,7 +62,12 @@ def _killpg(pid: int) -> None:
         logger.warning("killpg(%s) denied: %s", pgid, exc)
 
 
-async def _fetch_with_scrapling(url: str, scroll_full: bool = False) -> tuple[str, dict]:
+async def _fetch_with_scrapling(
+    url: str,
+    scroll_full: bool = False,
+    wait_until: str | None = None,
+    wait_for_selector: str | None = None,
+) -> tuple[str, dict]:
     """Fetch using StealthyFetcher inside a killable subprocess.
 
     The fetch runs in `python -m app.fetcher_worker`. On cancellation or
@@ -73,6 +78,10 @@ async def _fetch_with_scrapling(url: str, scroll_full: bool = False) -> tuple[st
     cmd = [sys.executable, "-m", "app.fetcher_worker", url]
     if scroll_full:
         cmd.append("--scroll-full")
+    if wait_until:
+        cmd.extend(["--wait-until", wait_until])
+    if wait_for_selector:
+        cmd.extend(["--wait-for-selector", wait_for_selector])
 
     # start_new_session=True puts the child in its own process group, so
     # one killpg call reaches camoufox and every helper it spawns.
@@ -111,7 +120,14 @@ PROVIDER_API_KEYS = {
 
 
 async def _try_provider(
-    provider: str, url: str, no_style: bool, no_script: bool, is_last: bool = False, scroll_full: bool = False,
+    provider: str,
+    url: str,
+    no_style: bool,
+    no_script: bool,
+    is_last: bool = False,
+    scroll_full: bool = False,
+    wait_until: str | None = None,
+    wait_for_selector: str | None = None,
 ) -> tuple[str | None, dict | None, dict | None, str | None, dict | None]:
     """Try a single provider. Returns (html, scores, head_meta, markdown, http_metadata) on success, (None, None, None, None, None) on failure.
 
@@ -133,7 +149,12 @@ async def _try_provider(
                 sem = _get_scrapling_semaphore()
                 async with sem:
                     html, http_metadata = await asyncio.wait_for(
-                        _fetch_with_scrapling(url, scroll_full=scroll_full),
+                        _fetch_with_scrapling(
+                            url,
+                            scroll_full=scroll_full,
+                            wait_until=wait_until,
+                            wait_for_selector=wait_for_selector,
+                        ),
                         timeout=PROVIDER_HARD_TIMEOUT_S,
                     )
             elif provider == "cloudflare":
@@ -178,7 +199,16 @@ async def _try_provider(
     return None, None, None, None, None
 
 
-async def fetch_single_url(raw_url: str, no_style: bool = False, no_script: bool = False, provider_order: list[str] | None = None, scroll_full: bool = False, cache_ttl_hours: float | None = None) -> dict:
+async def fetch_single_url(
+    raw_url: str,
+    no_style: bool = False,
+    no_script: bool = False,
+    provider_order: list[str] | None = None,
+    scroll_full: bool = False,
+    wait_until: str | None = None,
+    wait_for_selector: str | None = None,
+    cache_ttl_hours: float | None = None,
+) -> dict:
     """Fetch a URL trying providers in the given order.
 
     When `cache_ttl_hours` is set, a cached result is served if within that TTL,
@@ -195,7 +225,16 @@ async def fetch_single_url(raw_url: str, no_style: bool = False, no_script: bool
 
     try:
         result = await asyncio.wait_for(
-            _fetch_single_url_inner(url, raw_url, no_style, no_script, provider_order, scroll_full),
+            _fetch_single_url_inner(
+                url,
+                raw_url,
+                no_style,
+                no_script,
+                provider_order,
+                scroll_full,
+                wait_until,
+                wait_for_selector,
+            ),
             timeout=FETCH_SINGLE_URL_TIMEOUT_S,
         )
     except asyncio.TimeoutError:
@@ -215,7 +254,16 @@ async def fetch_single_url(raw_url: str, no_style: bool = False, no_script: bool
     return result
 
 
-async def _fetch_single_url_inner(url: str, raw_url: str, no_style: bool, no_script: bool, provider_order: list[str] | None, scroll_full: bool) -> dict:
+async def _fetch_single_url_inner(
+    url: str,
+    raw_url: str,
+    no_style: bool,
+    no_script: bool,
+    provider_order: list[str] | None,
+    scroll_full: bool,
+    wait_until: str | None,
+    wait_for_selector: str | None,
+) -> dict:
     """Inner fetch logic, separated so fetch_single_url can wrap it with a hard timeout."""
     # Special-case Twitter and YouTube — use dedicated API fetchers
     special_result = await _try_special_fetcher(url, raw_url)
@@ -226,7 +274,16 @@ async def _fetch_single_url_inner(url: str, raw_url: str, no_style: bool, no_scr
 
     for i, provider in enumerate(providers):
         is_last = i == len(providers) - 1
-        html, scores, head_meta, markdown, http_metadata = await _try_provider(provider, url, no_style, no_script, is_last, scroll_full=scroll_full)
+        html, scores, head_meta, markdown, http_metadata = await _try_provider(
+            provider,
+            url,
+            no_style,
+            no_script,
+            is_last,
+            scroll_full=scroll_full,
+            wait_until=wait_until,
+            wait_for_selector=wait_for_selector,
+        )
         if html is not None:
             return _success(url, raw_url, html, provider, scores, head_meta, markdown, http_metadata)
 
@@ -316,7 +373,28 @@ def _success(
     return result
 
 
-async def fetch_urls(urls: list[str], no_style: bool = False, no_script: bool = False, provider_order: list[str] | None = None, scroll_full: bool = False, cache_ttl_hours: float | None = None) -> list[dict]:
+async def fetch_urls(
+    urls: list[str],
+    no_style: bool = False,
+    no_script: bool = False,
+    provider_order: list[str] | None = None,
+    scroll_full: bool = False,
+    wait_until: str | None = None,
+    wait_for_selector: str | None = None,
+    cache_ttl_hours: float | None = None,
+) -> list[dict]:
     """Fetch multiple URLs concurrently with fallback chain."""
-    tasks = [fetch_single_url(url, no_style, no_script, provider_order, scroll_full=scroll_full, cache_ttl_hours=cache_ttl_hours) for url in urls]
+    tasks = [
+        fetch_single_url(
+            url,
+            no_style,
+            no_script,
+            provider_order,
+            scroll_full=scroll_full,
+            wait_until=wait_until,
+            wait_for_selector=wait_for_selector,
+            cache_ttl_hours=cache_ttl_hours,
+        )
+        for url in urls
+    ]
     return await asyncio.gather(*tasks)
