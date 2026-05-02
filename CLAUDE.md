@@ -38,15 +38,15 @@ Fetch full HTML content from one or more URLs.
 | `urls` | string (repeated) | yes | — | URLs to fetch. Repeat for multiple: `urls=...&urls=...` |
 | `no_style` | bool | no | `false` | Remove all inline `style="..."` attributes |
 | `no_script` | bool | no | `false` | Remove all inline `<script>` tags (without `src` attribute) |
-| `provider_order` | string | no | `scrapling,cloudflare,firecrawl` | Comma-separated provider order |
-| `scroll_full` | bool | no | `false` | Scroll full page incrementally to trigger lazy-loaded content. Adds ~5–20s. Supported by `scrapling` and `cloudflare`; no-op for `firecrawl`. |
-| `wait_until` | string | no | — | Scrapling provider only. Supported: `networkidle`. |
-| `wait_for_selector` | string | no | — | Scrapling provider only. CSS selector to wait for before reading the page HTML. |
+| `provider_order` | string | no | `obscura,scrapling,cloudflare,firecrawl` | Comma-separated provider order |
+| `scroll_full` | bool | no | `false` | Scroll full page incrementally to trigger lazy-loaded content. Adds ~5–20s. Supported by `scrapling` and `cloudflare`; no-op for `obscura` and `firecrawl`. |
+| `wait_until` | string | no | — | Obscura and scrapling only. Supported: `networkidle` (mapped to obscura's `networkidle0`). |
+| `wait_for_selector` | string | no | — | Obscura and scrapling only. CSS selector to wait for before reading the page HTML. |
 | `cache` | string | no | — | Opt-in cache TTL, format `<N>h` (e.g. `1h`, `24h`). Absent = cache is not read and nothing is written. When set, a cached result younger than `<N>` hours is served; otherwise the fresh fetch is written to cache. |
 
 **Max 10 URLs per request.**
 
-**Valid providers:** `scrapling`, `cloudflare`, `firecrawl`
+**Valid providers:** `obscura`, `scrapling`, `cloudflare`, `firecrawl`
 
 **Twitter sub-provider (`twitter_source`):** present only when `provider == "twitter"`. One of `"fxtwitter"` (rich — full tweet, thread ancestors, QRTs, article blocks), `"oembed"` (thin — blockquote of tweet text, no article body), or `"syndication"` (fallback — text + article preview only). Downstream consumers can use this to track which path produced the content without content-sniffing the HTML.
 
@@ -255,18 +255,27 @@ Before fetching, all URLs are cleaned:
 
 ### Fallback Chain
 
-Default order: `scrapling` → `cloudflare` → `firecrawl`
+Default order: `obscura` → `scrapling` → `cloudflare` → `firecrawl`
 
-1. **scrapling** (Scrapling/Camoufox stealth browser, 15s timeout) — validates content is not a block page
-2. **cloudflare** (Cloudflare Browser Rendering) — fallback if scrapling content is blocked/empty
-3. **firecrawl** (Firecrawl API) — last resort, returns content without validation
+1. **obscura** ([Obscura](https://github.com/h4ckf0r0day/obscura) headless-browser CLI, `--stealth`, ~30 MB / instant startup) — fastest path; validates content is not a block page
+2. **scrapling** (Scrapling/Camoufox stealth browser, 15s timeout) — heavier but battle-tested; supports `scroll_full`
+3. **cloudflare** (Cloudflare Browser Rendering) — fallback when local browsers are blocked/empty
+4. **firecrawl** (Firecrawl API) — last resort, returns content without validation
 
 Override with `provider_order` param (comma-separated):
 
 ```
 GET /api/v1/content?urls=https://example.com&provider_order=firecrawl,cloudflare
 GET /api/v1/content?urls=https://example.com&provider_order=scrapling
+GET /api/v1/content?urls=https://example.com&provider_order=obscura
 ```
+
+**Obscura runtime requirement:** the `obscura` binary must be on `PATH`,
+or `OBSCURA_BIN` must point to it. If the binary is missing, the obscura
+attempt fails and the chain falls through to scrapling — no hard error.
+Get the binary from <https://github.com/h4ckf0r0day/obscura/releases>
+(single static file, ~60 MB). Stealth (anti-fingerprinting + tracker
+blocking) is enabled per-fetch via `--stealth`.
 
 ### Content Validation
 
@@ -460,6 +469,7 @@ Successful responses can be cached to disk as gzip-compressed JSON files, opt-in
 - `CLOUDFLARE_API_KEY` — Cloudflare API key
 - `CLOUDFLARE_ACCOUNT_ID` — Cloudflare account ID
 - `PROXY_URL` — optional, SOCKS5 proxy URL (e.g. `socks5://socks-relay:1080`). Routes scrapling/asset fetches through the proxy
+- `OBSCURA_BIN` — optional, path to the Obscura CLI binary (default: `obscura`, resolved via PATH). Provider degrades to next in chain if binary is missing.
 - `CACHE_DIR` — cache directory path (default: `/cache`)
 - `CACHE_MAX_VERSIONS` — max versions to keep per URL (default: 5)
 - `CACHE_MAX_SIZE_GB` — max total cache size in GB (default: 20). Cache disabled when exceeded

@@ -11,6 +11,7 @@ from app.config import CLOUDFLARE_API_KEY, FETCH_SINGLE_URL_TIMEOUT_S, FIRECRAWL
 from app.content_validator import validate_content
 from app.firecrawl_fetcher import fetch_with_firecrawl
 from app.html_rewriter import extract_head_meta, html_to_markdown, make_links_absolute, strip_inline_scripts, strip_inline_styles, strip_large_styles
+from app.obscura_fetcher import fetch_with_obscura
 from app.twitter_fetcher import fetch_twitter, is_twitter_url
 from app.url_cleaner import clean_url
 from app.youtube_fetcher import fetch_youtube, is_youtube_url
@@ -111,7 +112,12 @@ async def _fetch_with_scrapling(
     return result["html"], result.get("http_metadata") or {}
 
 
-DEFAULT_PROVIDER_ORDER = ["scrapling", "cloudflare", "firecrawl"]
+DEFAULT_PROVIDER_ORDER = ["obscura", "scrapling", "cloudflare", "firecrawl"]
+
+# Providers that don't need an API key (they're local processes / binaries).
+# Used by `_try_provider` to decide whether to skip a provider for missing
+# credentials before spending time trying to invoke it.
+KEYLESS_PROVIDERS = {"obscura", "scrapling"}
 
 PROVIDER_API_KEYS = {
     "cloudflare": CLOUDFLARE_API_KEY,
@@ -134,7 +140,7 @@ async def _try_provider(
     When is_last=True, skip content validation and return whatever HTML was fetched.
     The scrapling provider gets one retry on exception (transient browser failures).
     """
-    if provider != "scrapling" and not PROVIDER_API_KEYS.get(provider):
+    if provider not in KEYLESS_PROVIDERS and not PROVIDER_API_KEYS.get(provider):
         logger.info("[%s] skipped (no API key configured)", provider)
         return None, None, None, None, None
 
@@ -145,7 +151,20 @@ async def _try_provider(
             logger.info("[%s] fetching %s (attempt %d/%d)", provider, url, attempt + 1, attempts)
             http_metadata = None
 
-            if provider == "scrapling":
+            if provider == "obscura":
+                # No semaphore: obscura is ~30 MB/instance and starts instantly,
+                # so it doesn't need the same concurrency throttle as Camoufox.
+                # `scroll_full` is silently ignored — obscura's CLI has no
+                # equivalent today; fall through to scrapling if scroll matters.
+                html, http_metadata = await asyncio.wait_for(
+                    fetch_with_obscura(
+                        url,
+                        wait_until=wait_until,
+                        wait_for_selector=wait_for_selector,
+                    ),
+                    timeout=PROVIDER_HARD_TIMEOUT_S,
+                )
+            elif provider == "scrapling":
                 sem = _get_scrapling_semaphore()
                 async with sem:
                     html, http_metadata = await asyncio.wait_for(

@@ -25,6 +25,12 @@ CLOUDFLARE_TIMEOUT_SECONDS = int(os.environ.get("CLOUDFLARE_TIMEOUT_SECONDS", "3
 
 PROXY_URL = os.environ.get("PROXY_URL", "")
 
+# Obscura headless-browser CLI binary. Either an absolute path or a name
+# resolved via PATH. The provider is skipped (with a warning) if the binary
+# isn't found at fetch time, so a missing binary degrades gracefully to the
+# next provider in the order.
+OBSCURA_BIN = os.environ.get("OBSCURA_BIN", "obscura")
+
 # Cache configuration. Caching is opt-in per request via the `cache=<N>h`
 # query parameter; there is no global TTL default.
 CACHE_DIR = os.environ.get("CACHE_DIR", "/cache")
