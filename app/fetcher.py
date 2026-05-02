@@ -9,6 +9,7 @@ from app.cache import read_cache, write_cache
 from app.cloudflare_fetcher import fetch_with_cloudflare
 from app.config import CLOUDFLARE_API_KEY, FETCH_SINGLE_URL_TIMEOUT_S, FIRECRAWL_API_KEY, PROVIDER_HARD_TIMEOUT_S, SCRAPLING_MAX_CONCURRENT
 from app.content_validator import validate_content
+from app.diagnostics import get_egress_ip
 from app.firecrawl_fetcher import fetch_with_firecrawl
 from app.html_rewriter import extract_head_meta, html_to_markdown, make_links_absolute, strip_inline_scripts, strip_inline_styles, strip_large_styles
 from app.obscura_fetcher import fetch_with_obscura
@@ -304,7 +305,8 @@ async def _fetch_single_url_inner(
             wait_for_selector=wait_for_selector,
         )
         if html is not None:
-            return _success(url, raw_url, html, provider, scores, head_meta, markdown, http_metadata)
+            egress_ip = await get_egress_ip()
+            return _success(url, raw_url, html, provider, scores, head_meta, markdown, http_metadata, egress_ip=egress_ip)
 
     return {
         "url": url,
@@ -346,6 +348,7 @@ async def _try_special_fetcher(url: str, raw_url: str) -> dict | None:
     html = result["html"]
     head_meta = extract_head_meta(html)
     markdown = html_to_markdown(html)
+    egress_ip = await get_egress_ip()
     return _success(
         url,
         raw_url,
@@ -355,6 +358,7 @@ async def _try_special_fetcher(url: str, raw_url: str) -> dict | None:
         head_meta,
         markdown,
         twitter_source=result.get("twitter_source"),
+        egress_ip=egress_ip,
     )
 
 
@@ -368,6 +372,7 @@ def _success(
     markdown: str | None = None,
     http_metadata: dict | None = None,
     twitter_source: str | None = None,
+    egress_ip: str | None = None,
 ) -> dict:
     result = {
         "url": url,
@@ -384,6 +389,15 @@ def _success(
         result["markdown"] = markdown
     if http_metadata:
         result["http"] = http_metadata
+    if egress_ip:
+        # Public IP scrapi appears from. Discovered once at process start
+        # via api.ipify.org and cached. For scrapling, this matches what
+        # the target server saw only when no PROXY_URL is set; with the
+        # SOCKS proxy, scrapling's actual egress is the proxy endpoint.
+        # For obscura, this is the actual egress (obscura doesn't honor
+        # PROXY_URL today). For cloudflare/firecrawl this is informational
+        # — the request originates from their datacenter, not ours.
+        result["egress_ip"] = egress_ip
     # Sub-provider identifier for Twitter — lets downstream consumers tell
     # fxtwitter (rich) from oembed (thin) from syndication (fallback) apart
     # without having to content-sniff the HTML.

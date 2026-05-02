@@ -24,6 +24,7 @@ import os
 import signal
 
 from app.config import OBSCURA_BIN
+from app.diagnostics import fetch_sibling_http_metadata
 
 logger = logging.getLogger(__name__)
 
@@ -57,9 +58,13 @@ async def fetch_with_obscura(
 ) -> tuple[str, dict]:
     """Fetch a URL with the Obscura CLI in stealth mode. Returns (html, http_metadata).
 
-    `http_metadata` is always an empty dict — Obscura's `fetch` subcommand
-    does not surface HTTP status/headers/redirects on stdout. Callers that
-    need that info should fall through to the scrapling provider.
+    `http_metadata` is best-effort: Obscura's `fetch` subcommand emits
+    only the rendered body, so we issue a sibling httpx GET to the same
+    URL to capture status / response headers / redirect history. The
+    sibling response is marked with `source: "sibling-httpx"` so
+    consumers know it's not Obscura's own response (TLS fingerprint and
+    cookies will differ). Empty dict on sibling failure — does NOT fail
+    the obscura fetch.
     """
     cmd = [OBSCURA_BIN, "fetch", url, "--dump", "html", "--stealth", "--quiet"]
     if wait_until:
@@ -93,4 +98,5 @@ async def fetch_with_obscura(
     if not html.strip():
         raise RuntimeError("obscura returned empty stdout")
 
-    return html, {}
+    http_metadata = await fetch_sibling_http_metadata(url)
+    return html, http_metadata
