@@ -14,7 +14,7 @@ SUCCESS_RESULT = {
     "url": "https://example.com",
     "raw_url": "https://example.com",
     "status": "success",
-    "provider": "raw",
+    "provider": "scrapling",
     "html": "<html><body><p>Hello</p></body></html>",
     "markdown": "Hello",
 }

@@ -10,12 +10,12 @@ SIMPLE_HTML = "<html><head><title>Test</title></head><body><p>Hello</p></body></
 
 
 # ---------------------------------------------------------------------------
-# /api/v1/content — raw provider returns http metadata
+# /api/v1/content — scrapling provider returns http metadata
 # ---------------------------------------------------------------------------
 
 
 @patch("app.fetcher._fetch_with_scrapling", new_callable=AsyncMock)
-def test_content_raw_provider_returns_http_metadata(mock_fetch, client):
+def test_content_scrapling_provider_returns_http_metadata(mock_fetch, client):
     mock_fetch.return_value = (
         SIMPLE_HTML,
         {
@@ -27,7 +27,7 @@ def test_content_raw_provider_returns_http_metadata(mock_fetch, client):
 
     resp = client.get(
         "/api/v1/content",
-        params={"urls": "https://example.com", "provider_order": "raw"},
+        params={"urls": "https://example.com", "provider_order": "scrapling"},
         headers=AUTH_HEADER,
     )
 
@@ -40,7 +40,7 @@ def test_content_raw_provider_returns_http_metadata(mock_fetch, client):
 
 
 @patch("app.fetcher._fetch_with_scrapling", new_callable=AsyncMock)
-def test_content_raw_provider_with_redirect_history(mock_fetch, client):
+def test_content_scrapling_provider_with_redirect_history(mock_fetch, client):
     mock_fetch.return_value = (
         SIMPLE_HTML,
         {
@@ -58,7 +58,7 @@ def test_content_raw_provider_with_redirect_history(mock_fetch, client):
 
     resp = client.get(
         "/api/v1/content",
-        params={"urls": "http://example.com", "provider_order": "raw"},
+        params={"urls": "http://example.com", "provider_order": "scrapling"},
         headers=AUTH_HEADER,
     )
 
@@ -73,7 +73,7 @@ def test_content_raw_provider_with_redirect_history(mock_fetch, client):
 
 
 @patch("app.fetcher._fetch_with_scrapling", new_callable=AsyncMock)
-def test_content_raw_provider_forwards_wait_options(mock_fetch, client):
+def test_content_scrapling_provider_forwards_wait_options(mock_fetch, client):
     mock_fetch.return_value = (
         SIMPLE_HTML,
         {
@@ -87,7 +87,7 @@ def test_content_raw_provider_forwards_wait_options(mock_fetch, client):
         "/api/v1/content",
         params={
             "urls": "https://example.com",
-            "provider_order": "raw",
+            "provider_order": "scrapling",
             "wait_until": "networkidle",
             "wait_for_selector": ".listing-card",
         },
@@ -103,7 +103,7 @@ def test_content_raw_provider_forwards_wait_options(mock_fetch, client):
     )
     result = resp.json()["results"][0]
     assert result["status"] == "success"
-    assert result["provider"] == "raw"
+    assert result["provider"] == "scrapling"
 
 
 def test_content_rejects_invalid_wait_until(client):
@@ -111,7 +111,7 @@ def test_content_rejects_invalid_wait_until(client):
         "/api/v1/content",
         params={
             "urls": "https://example.com",
-            "provider_order": "raw",
+            "provider_order": "scrapling",
             "wait_until": "domcontentloaded",
         },
         headers=AUTH_HEADER,
