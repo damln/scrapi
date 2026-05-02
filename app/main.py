@@ -32,7 +32,7 @@ app = FastAPI(docs_url=None, redoc_url=None, openapi_url=None, lifespan=lifespan
 
 MAX_URLS_PER_REQUEST = 10
 
-VALID_PROVIDERS = {"raw", "cloudflare", "firecrawl"}
+VALID_PROVIDERS = {"scrapling", "cloudflare", "firecrawl"}
 VALID_WAIT_UNTIL = {"networkidle"}
 
 _CACHE_PARAM_RE = re.compile(r"^\s*(\d+(?:\.\d+)?)\s*h\s*$", re.IGNORECASE)
@@ -66,10 +66,10 @@ async def get_content(
     urls: list[str] = Query(..., description="List of URLs to fetch"),
     no_style: bool = Query(False, description="Remove all inline style attributes"),
     no_script: bool = Query(False, description="Remove all inline script tags"),
-    provider_order: str = Query("raw,cloudflare,firecrawl", description="Comma-separated provider order"),
+    provider_order: str = Query("scrapling,cloudflare,firecrawl", description="Comma-separated provider order"),
     scroll_full: bool = Query(False, description="Scroll full page to trigger lazy-loaded content"),
-    wait_until: str | None = Query(None, description="Raw provider only. Supports: networkidle"),
-    wait_for_selector: str | None = Query(None, description="Raw provider only. Wait for CSS selector before reading HTML"),
+    wait_until: str | None = Query(None, description="Scrapling provider only. Supports: networkidle"),
+    wait_for_selector: str | None = Query(None, description="Scrapling provider only. Wait for CSS selector before reading HTML"),
     cache: str | None = Query(None, description="Opt-in cache TTL, e.g. '1h', '24h'. Absent = no cache."),
     _token: str = Depends(verify_token),
 ):
@@ -83,7 +83,7 @@ async def get_content(
     invalid = [p for p in providers if p not in VALID_PROVIDERS]
     if invalid:
         return {
-            "error": f"Invalid providers: {', '.join(invalid)}. Valid: raw, cloudflare, firecrawl",
+            "error": f"Invalid providers: {', '.join(invalid)}. Valid: scrapling, cloudflare, firecrawl",
             "results": [],
         }
 

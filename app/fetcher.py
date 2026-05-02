@@ -111,7 +111,7 @@ async def _fetch_with_scrapling(
     return result["html"], result.get("http_metadata") or {}
 
 
-DEFAULT_PROVIDER_ORDER = ["raw", "cloudflare", "firecrawl"]
+DEFAULT_PROVIDER_ORDER = ["scrapling", "cloudflare", "firecrawl"]
 
 PROVIDER_API_KEYS = {
     "cloudflare": CLOUDFLARE_API_KEY,
@@ -132,20 +132,20 @@ async def _try_provider(
     """Try a single provider. Returns (html, scores, head_meta, markdown, http_metadata) on success, (None, None, None, None, None) on failure.
 
     When is_last=True, skip content validation and return whatever HTML was fetched.
-    The raw provider gets one retry on exception (transient browser failures).
+    The scrapling provider gets one retry on exception (transient browser failures).
     """
-    if provider != "raw" and not PROVIDER_API_KEYS.get(provider):
+    if provider != "scrapling" and not PROVIDER_API_KEYS.get(provider):
         logger.info("[%s] skipped (no API key configured)", provider)
         return None, None, None, None, None
 
-    attempts = SCRAPLING_RETRY_ATTEMPTS if provider == "raw" else 1
+    attempts = SCRAPLING_RETRY_ATTEMPTS if provider == "scrapling" else 1
 
     for attempt in range(attempts):
         try:
             logger.info("[%s] fetching %s (attempt %d/%d)", provider, url, attempt + 1, attempts)
             http_metadata = None
 
-            if provider == "raw":
+            if provider == "scrapling":
                 sem = _get_scrapling_semaphore()
                 async with sem:
                     html, http_metadata = await asyncio.wait_for(

@@ -38,15 +38,15 @@ Fetch full HTML content from one or more URLs.
 | `urls` | string (repeated) | yes | — | URLs to fetch. Repeat for multiple: `urls=...&urls=...` |
 | `no_style` | bool | no | `false` | Remove all inline `style="..."` attributes |
 | `no_script` | bool | no | `false` | Remove all inline `<script>` tags (without `src` attribute) |
-| `provider_order` | string | no | `raw,cloudflare,firecrawl` | Comma-separated provider order |
-| `scroll_full` | bool | no | `false` | Scroll full page incrementally to trigger lazy-loaded content. Adds ~5–20s. Supported by `raw` and `cloudflare`; no-op for `firecrawl`. |
-| `wait_until` | string | no | — | Raw provider only. Supported: `networkidle`. |
-| `wait_for_selector` | string | no | — | Raw provider only. CSS selector to wait for before reading the page HTML. |
+| `provider_order` | string | no | `scrapling,cloudflare,firecrawl` | Comma-separated provider order |
+| `scroll_full` | bool | no | `false` | Scroll full page incrementally to trigger lazy-loaded content. Adds ~5–20s. Supported by `scrapling` and `cloudflare`; no-op for `firecrawl`. |
+| `wait_until` | string | no | — | Scrapling provider only. Supported: `networkidle`. |
+| `wait_for_selector` | string | no | — | Scrapling provider only. CSS selector to wait for before reading the page HTML. |
 | `cache` | string | no | — | Opt-in cache TTL, format `<N>h` (e.g. `1h`, `24h`). Absent = cache is not read and nothing is written. When set, a cached result younger than `<N>` hours is served; otherwise the fresh fetch is written to cache. |
 
 **Max 10 URLs per request.**
 
-**Valid providers:** `raw`, `cloudflare`, `firecrawl`
+**Valid providers:** `scrapling`, `cloudflare`, `firecrawl`
 
 **Twitter sub-provider (`twitter_source`):** present only when `provider == "twitter"`. One of `"fxtwitter"` (rich — full tweet, thread ancestors, QRTs, article blocks), `"oembed"` (thin — blockquote of tweet text, no article body), or `"syndication"` (fallback — text + article preview only). Downstream consumers can use this to track which path produced the content without content-sniffing the HTML.
 
@@ -59,7 +59,7 @@ Fetch full HTML content from one or more URLs.
       "url": "https://example.com/page?color=red",
       "raw_url": "https://example.com/page?utm_source=google&color=red",
       "status": "success",
-      "provider": "raw",
+      "provider": "scrapling",
       "html": "<!DOCTYPE html>...",
       "scores": {
         "html_length": 45230,
@@ -255,17 +255,17 @@ Before fetching, all URLs are cleaned:
 
 ### Fallback Chain
 
-Default order: `raw` → `cloudflare` → `firecrawl`
+Default order: `scrapling` → `cloudflare` → `firecrawl`
 
-1. **raw** (Scrapling, 15s timeout) — stealth browser fetch, validates content is not a block page
-2. **cloudflare** (Cloudflare Browser Rendering) — fallback if raw content is blocked/empty
+1. **scrapling** (Scrapling/Camoufox stealth browser, 15s timeout) — validates content is not a block page
+2. **cloudflare** (Cloudflare Browser Rendering) — fallback if scrapling content is blocked/empty
 3. **firecrawl** (Firecrawl API) — last resort, returns content without validation
 
 Override with `provider_order` param (comma-separated):
 
 ```
 GET /api/v1/content?urls=https://example.com&provider_order=firecrawl,cloudflare
-GET /api/v1/content?urls=https://example.com&provider_order=raw
+GET /api/v1/content?urls=https://example.com&provider_order=scrapling
 ```
 
 ### Content Validation
@@ -350,13 +350,13 @@ This downloads the latest lists and regenerates `app/cookie_dismiss/cosmetic_fil
 
 When `scroll_full=true` is passed, providers scroll the full page incrementally after the initial page load to trigger intersection-observer-based lazy loading (e.g. coches.net search results, infinite-scroll listing pages).
 
-**Raw provider (Scrapling):**
+**Scrapling provider:**
 - Scrolls in 800px increments via `window.scrollTo`
 - Waits 400ms between each step (for XHR/fetch triggers to fire)
 - Stops early when page height stabilizes after reaching the bottom
 - Capped at 40 iterations (~32 000px max depth)
 - 1500ms network settle wait after the last scroll step
-- Adds roughly 5–20s to raw fetch time
+- Adds roughly 5–20s to scrapling fetch time
 
 **Cloudflare provider:**
 - Injects an async IIFE via `addScriptTag` that mirrors the same scroll loop
@@ -426,7 +426,7 @@ curl -x socks5://127.0.0.1:1080 -s https://api.ipify.org  # should show Macbook 
 sudo ufw allow from 172.17.0.0/16 to any port 1080 proto tcp comment "SOCKS relay from Docker bridge"
 ```
 
-**What gets proxied:** The raw provider (Scrapling), the asset fetcher, and the Twitter fetcher. Cloudflare, Firecrawl and YouTube fetchers are not proxied — they call external APIs from datacenter-friendly endpoints. Twitter is proxied because `api.fxtwitter.com` is behind Cloudflare and has 403'd vela's datacenter IP / httpx UA combo in the past; routing through the Macbook Air's residential IP plus a desktop-browser UA keeps it reliable.
+**What gets proxied:** The scrapling provider, the asset fetcher, and the Twitter fetcher. Cloudflare, Firecrawl and YouTube fetchers are not proxied — they call external APIs from datacenter-friendly endpoints. Twitter is proxied because `api.fxtwitter.com` is behind Cloudflare and has 403'd vela's datacenter IP / httpx UA combo in the past; routing through the Macbook Air's residential IP plus a desktop-browser UA keeps it reliable.
 
 **`GatewayPorts`:** The server's `/etc/ssh/sshd_config` has `GatewayPorts clientspecified` to allow the tunnel to bind to `0.0.0.0` (required for Docker bridge access).
 
@@ -459,7 +459,7 @@ Successful responses can be cached to disk as gzip-compressed JSON files, opt-in
 - `FIRECRAWL_API_KEY` — Firecrawl API key
 - `CLOUDFLARE_API_KEY` — Cloudflare API key
 - `CLOUDFLARE_ACCOUNT_ID` — Cloudflare account ID
-- `PROXY_URL` — optional, SOCKS5 proxy URL (e.g. `socks5://socks-relay:1080`). Routes raw/asset fetches through the proxy
+- `PROXY_URL` — optional, SOCKS5 proxy URL (e.g. `socks5://socks-relay:1080`). Routes scrapling/asset fetches through the proxy
 - `CACHE_DIR` — cache directory path (default: `/cache`)
 - `CACHE_MAX_VERSIONS` — max versions to keep per URL (default: 5)
 - `CACHE_MAX_SIZE_GB` — max total cache size in GB (default: 20). Cache disabled when exceeded
