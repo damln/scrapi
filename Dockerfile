@@ -4,6 +4,19 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     wget curl gnupg2 && \
     rm -rf /var/lib/apt/lists/*
 
+# Obscura headless-browser CLI — first provider in the fallback chain.
+# Pinned by tag (not "latest") so image rebuilds are reproducible; bump
+# this ARG when we want a newer release. Static Rust binary, no runtime
+# deps. `--help` smoke test fails the build if the binary doesn't run in
+# this base image, instead of letting prod discover it at request time.
+ARG OBSCURA_VERSION=v0.1.1
+RUN curl -fsSL "https://github.com/h4ckf0r0day/obscura/releases/download/${OBSCURA_VERSION}/obscura-x86_64-linux.tar.gz" \
+      -o /tmp/obscura.tar.gz && \
+    tar -xzf /tmp/obscura.tar.gz -C /usr/local/bin obscura && \
+    rm /tmp/obscura.tar.gz && \
+    chmod +x /usr/local/bin/obscura && \
+    /usr/local/bin/obscura --help > /dev/null
+
 WORKDIR /app
 
 COPY requirements.txt .
