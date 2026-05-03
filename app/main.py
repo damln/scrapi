@@ -143,11 +143,29 @@ async def delete_cache(
     }
 
 
+_AGENTS_MD_PATH = Path(__file__).resolve().parent.parent / "AGENTS.md"
+
+
+def _read_agents_md() -> str:
+    return _AGENTS_MD_PATH.read_text(encoding="utf-8")
+
+
+# Two paths point at the same content. `/api/AGENTS.md` is the
+# easy-to-remember, agent-friendly path (just point any LLM/agent at
+# `<host>/api/AGENTS.md` and it gets the API contract). `/api/v1/agent`
+# is kept as an alias for backwards compatibility — older callers and
+# anything that hardcoded the v1 path keep working.
 @app.get("/api/v1/agent", response_class=PlainTextResponse)
-async def get_agent():
-    """Public discovery endpoint: raw AGENTS.md for agents to self-describe the API."""
-    agents_path = Path(__file__).resolve().parent.parent / "AGENTS.md"
-    return agents_path.read_text(encoding="utf-8")
+@app.get("/api/AGENTS.md", response_class=PlainTextResponse)
+async def get_agents_md():
+    """Public discovery endpoint: raw AGENTS.md for agents to self-describe the API.
+
+    AGENTS.md is the *public* doc — it intentionally excludes the
+    internal CLAUDE.md content (deploy infra, SSH tunnel architecture,
+    internal hostnames). Don't merge them back without thinking about
+    what you're shipping to anonymous callers.
+    """
+    return _read_agents_md()
 
 
 @app.get("/api/v1/asset")
