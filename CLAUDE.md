@@ -50,6 +50,10 @@ Fetch full HTML content from one or more URLs.
 
 **Twitter sub-provider (`twitter_source`):** present only when `provider == "twitter"`. One of `"fxtwitter"` (rich — full tweet, thread ancestors, QRTs, article blocks), `"oembed"` (thin — blockquote of tweet text, no article body), or `"syndication"` (fallback — text + article preview only). Downstream consumers can use this to track which path produced the content without content-sniffing the HTML.
 
+**`egress_ip` (top-level, all successful responses):** the public IP scrapi appears from. Discovered once at process start via api.ipify.org and cached for the lifetime of the container. For obscura it matches the actual outbound IP. For scrapling, when `PROXY_URL` is set, the actual egress is the SOCKS proxy endpoint, not this value. For cloudflare/firecrawl this is informational — the upstream request originates from their datacenter, not ours. Field is omitted when discovery hasn't succeeded.
+
+**`http` field on obscura responses:** Obscura's CLI doesn't expose response status/headers/redirects, so scrapi issues a sibling `httpx` GET to the same URL after each obscura fetch and reports what *that* request received. Marked with `"source": "sibling-httpx"` so consumers know it's not the obscura request itself — TLS fingerprint, cookies, and CDN routing may differ from what obscura saw. Useful for diagnostics (e.g. spotting `server: DataDome` and `status: 403` even when scrapi returned the challenge body as `"success"`). Empty/absent when the sibling fetch failed.
+
 **Response:**
 
 ```json
@@ -60,6 +64,7 @@ Fetch full HTML content from one or more URLs.
       "raw_url": "https://example.com/page?utm_source=google&color=red",
       "status": "success",
       "provider": "scrapling",
+      "egress_ip": "159.26.107.105",
       "html": "<!DOCTYPE html>...",
       "scores": {
         "html_length": 45230,

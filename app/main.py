@@ -5,7 +5,7 @@ from pathlib import Path
 from fastapi import Depends, FastAPI, Query
 from fastapi.responses import PlainTextResponse
 
-from app import asset_fetcher, cloudflare_fetcher, firecrawl_fetcher, twitter_fetcher, youtube_fetcher
+from app import asset_fetcher, cloudflare_fetcher, diagnostics, firecrawl_fetcher, twitter_fetcher, youtube_fetcher
 import asyncio
 
 from app.auth import verify_token
@@ -17,12 +17,17 @@ from app.fetcher import fetch_urls
 async def lifespan(app: FastAPI):
     asset_fetcher.init_client()
     cloudflare_fetcher.init_client()
+    diagnostics.init_client()
     firecrawl_fetcher.init_client()
     twitter_fetcher.init_client()
     youtube_fetcher.init_client()
+    # Pre-warm the egress IP cache in the background so the first
+    # /api/v1/content call doesn't pay the discovery latency.
+    asyncio.create_task(diagnostics.get_egress_ip())
     yield
     await asset_fetcher.close_client()
     await cloudflare_fetcher.close_client()
+    await diagnostics.close_client()
     await firecrawl_fetcher.close_client()
     await twitter_fetcher.close_client()
     await youtube_fetcher.close_client()
