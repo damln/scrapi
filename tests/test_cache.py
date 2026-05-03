@@ -52,8 +52,29 @@ def test_cache_dir_is_deterministic(tmp_path):
 
 
 def test_cache_dir_uses_two_char_prefix(tmp_path):
+    # Hash composes URL + canonical params (defaults when not passed),
+    # so we recompute the same way `_cache_dir_for_url` does. This test
+    # only checks the dir layout (two-char prefix + full hash), not a
+    # specific URL's MD5.
+    import json
+
     url = "https://example.com"
-    md5 = hashlib.md5(url.encode()).hexdigest()
+    canonical = json.dumps(
+        {
+            "url": url,
+            "params": {
+                "provider_order": None,
+                "scroll_full": None,
+                "wait_until": None,
+                "wait_for_selector": None,
+                "no_style": None,
+                "no_script": None,
+            },
+        },
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+    md5 = hashlib.md5(canonical.encode()).hexdigest()
     with patch("app.cache.CACHE_DIR", str(tmp_path)):
         from app.cache import _cache_dir_for_url
 
@@ -69,6 +90,43 @@ def test_different_urls_have_different_dirs(tmp_path):
         d1 = _cache_dir_for_url("https://example.com")
         d2 = _cache_dir_for_url("https://other.com")
     assert d1 != d2
+
+
+def test_same_url_different_params_have_different_cache_dirs(tmp_path):
+    # The bug this guards against: `cache=1h` could hand back a
+    # non-scrolled body to a request that asked for `scroll_full=true`,
+    # or a scrapling response to a request that asked for
+    # `provider_order=firecrawl`. Each variant must hash to its own dir.
+    with patch("app.cache.CACHE_DIR", str(tmp_path)):
+        from app.cache import _cache_dir_for_url
+
+        url = "https://example.com"
+        base = _cache_dir_for_url(url)
+        scroll = _cache_dir_for_url(url, {"scroll_full": True})
+        firecrawl = _cache_dir_for_url(url, {"provider_order": ["firecrawl"]})
+        no_style = _cache_dir_for_url(url, {"no_style": True})
+        no_script = _cache_dir_for_url(url, {"no_script": True})
+        wait = _cache_dir_for_url(url, {"wait_until": "networkidle"})
+        selector = _cache_dir_for_url(url, {"wait_for_selector": ".item"})
+
+    dirs = {base, scroll, firecrawl, no_style, no_script, wait, selector}
+    assert len(dirs) == 7, "Each param variant must have a distinct cache dir"
+
+
+def test_unknown_params_dont_invalidate_cache(tmp_path):
+    # `_normalize_params` restricts to the known cache-key fields, so
+    # passing an unrelated kwarg (e.g. a future param that isn't
+    # response-shaping) doesn't silently invalidate the cache for every
+    # caller.
+    with patch("app.cache.CACHE_DIR", str(tmp_path)):
+        from app.cache import _cache_dir_for_url
+
+        a = _cache_dir_for_url("https://example.com", {"scroll_full": True})
+        b = _cache_dir_for_url(
+            "https://example.com",
+            {"scroll_full": True, "future_param_we_dont_care_about": "yes"},
+        )
+    assert a == b
 
 
 # ---------------------------------------------------------------------------

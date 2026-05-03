@@ -287,7 +287,8 @@ blocking) is enabled per-fetch via `--stealth`.
 Each provider (except the last in the chain) validates the fetched HTML:
 - HTML must be at least 256 bytes
 - Must contain a `<body>` tag
-- Must not match 2+ block/captcha indicators (access denied, captcha, cloudflare challenge, etc.)
+- Must not contain any **hard block marker** — vendor-specific challenge tokens (`geo.captcha-delivery.com` for DataDome, `cf-mitigated` / `cf-chl-bypass` / `cf_chl_opt` for Cloudflare bot management, `px-captcha` / `_px2` for PerimeterX). Single occurrence triggers fall-through.
+- Must not match 2+ **soft block indicators** (access denied, captcha, cloudflare challenge, etc. — phrases that could plausibly appear on real pages).
 
 The last provider in the chain returns whatever it fetched, even if validation fails.
 
@@ -452,7 +453,7 @@ Successful responses can be cached to disk as gzip-compressed JSON files, opt-in
 - **TTL:** supplied per request (e.g. `cache=1h`, `cache=24h`)
 - **Versions kept:** 5 per URL (configurable via `CACHE_MAX_VERSIONS`), providing a history of past fetches
 - **Max total size:** 20 GB (configurable via `CACHE_MAX_SIZE_GB`). When exceeded, caching is fully disabled (no reads, no writes) until cache is cleared
-- **Cache key:** MD5 hash of the cleaned URL (after tracking param removal and query param sorting)
+- **Cache key:** MD5 hash of the cleaned URL (after tracking param removal and query param sorting) **plus** the request params that change response shape: `provider_order`, `scroll_full`, `wait_until`, `wait_for_selector`, `no_style`, `no_script`. Different param combos hash to different cache dirs, so `cache=1h` won't hand back a non-scrolled body to a request that asked for `scroll_full=true`.
 - **Storage:** gzip-compressed JSON files at `{CACHE_DIR}/{md5[:2]}/{md5}/{timestamp}.json.gz`
 - **Atomic writes:** files are written to `.tmp` then renamed (POSIX atomic on same filesystem)
 - **Docker dev:** bind-mount `./cache:/cache` (inspectable from host)

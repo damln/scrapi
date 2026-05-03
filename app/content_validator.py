@@ -2,6 +2,34 @@ import re
 
 MIN_HTML_LENGTH = 256
 
+# High-confidence block markers — a SINGLE occurrence is enough to fail
+# validation. These are vendor-specific challenge-page strings that don't
+# legitimately appear in real article/listing content. Only add a marker
+# here if a false positive is implausible (e.g. no real site embeds
+# `geo.captcha-delivery.com` in its DOM unless DataDome served it).
+HARD_BLOCK_MARKERS = [
+    # DataDome challenge / captcha iframe — observed on idealista.com and
+    # leboncoin.fr (1.5 KB stub page that scrapi otherwise reports as
+    # status: success because the soft heuristic only counted "captcha"
+    # once and needed >= 2 matches).
+    "geo.captcha-delivery.com",
+    "datadome captcha",
+    # Cloudflare bot management / managed challenge — these tokens appear
+    # in CF's challenge interstitial, never in real content.
+    "cf-mitigated",
+    "cf-chl-bypass",
+    "__cf_chl_jschl_tk__",
+    "cf_chl_opt",
+    # PerimeterX / HUMAN — challenge token in their interstitial.
+    "px-captcha",
+    "_px2",
+]
+
+# Soft block indicators — phrases that could plausibly appear on real
+# pages (a help article about CAPTCHAs, a blog post about Cloudflare,
+# an error doc explaining 403s). We require >= 2 distinct matches before
+# failing validation, on the theory that real pages won't trip multiple
+# of these at once.
 BLOCKED_INDICATORS = [
     "access denied",
     "403 forbidden",
@@ -28,7 +56,10 @@ BLOCKED_INDICATORS = [
 def validate_content(html: str) -> dict:
     """Check whether HTML content looks like a real page vs a block/captcha page.
 
-    Only rejects pages that are clearly blocked or empty.
+    Two-tier check:
+    - HARD_BLOCK_MARKERS — single occurrence fails. Vendor-specific
+      strings that don't legitimately appear in real content.
+    - BLOCKED_INDICATORS — soft phrases; require >= 2 distinct matches.
     """
     scores = {}
 
@@ -42,6 +73,12 @@ def validate_content(html: str) -> dict:
         return _fail("no_body_tag", scores)
 
     html_lower = html.lower()
+
+    hard_matches = [kw for kw in HARD_BLOCK_MARKERS if kw in html_lower]
+    scores["hard_block_matches"] = hard_matches
+    if hard_matches:
+        return _fail(f"hard_block: {hard_matches[0]}", scores)
+
     blocked_matches = [kw for kw in BLOCKED_INDICATORS if kw in html_lower]
     scores["blocked_matches"] = blocked_matches
     if len(blocked_matches) >= 2:

@@ -237,8 +237,21 @@ async def fetch_single_url(
     """
     url = clean_url(raw_url)
 
+    # Cache key includes every param that changes the response shape so
+    # `cache=1h` doesn't hand back a non-scrolled body when the request
+    # asked for `scroll_full=true`, or a scrapling response when the
+    # request asked for `provider_order=firecrawl`.
+    cache_params = {
+        "provider_order": provider_order,
+        "scroll_full": scroll_full,
+        "wait_until": wait_until,
+        "wait_for_selector": wait_for_selector,
+        "no_style": no_style,
+        "no_script": no_script,
+    }
+
     if cache_ttl_hours is not None:
-        cached = await asyncio.to_thread(read_cache, url, cache_ttl_hours)
+        cached = await asyncio.to_thread(read_cache, url, cache_ttl_hours, cache_params)
         if cached is not None:
             cached["raw_url"] = raw_url
             return cached
@@ -269,7 +282,7 @@ async def fetch_single_url(
         }
 
     if cache_ttl_hours is not None and result.get("status") == "success":
-        await asyncio.to_thread(write_cache, url, result)
+        await asyncio.to_thread(write_cache, url, result, cache_params)
 
     return result
 

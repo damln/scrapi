@@ -75,9 +75,39 @@ def clear_cache() -> int:
     return count
 
 
-def _cache_dir_for_url(cleaned_url: str) -> Path:
-    """Return the directory path for a cleaned URL's cache entries."""
-    md5 = hashlib.md5(cleaned_url.encode("utf-8")).hexdigest()
+# Request params that change the response body shape — they MUST be
+# part of the cache key, otherwise `cache=1h` could hand back a
+# non-scrolled page for a request that asked for `scroll_full=true`,
+# or a scrapling response for a request that asked for `provider_order=firecrawl`.
+# Keep this list in sync with `fetch_single_url`'s kwargs.
+_CACHE_KEY_PARAMS = ("provider_order", "scroll_full", "wait_until", "wait_for_selector", "no_style", "no_script")
+
+
+def _normalize_params(params: dict | None) -> dict:
+    """Return params restricted to known cache-key fields, with stable types.
+
+    Anything not in `_CACHE_KEY_PARAMS` is dropped — passing extra fields
+    must not silently invalidate the cache. Lists are kept as lists (order
+    is meaningful for `provider_order`); None is preserved as None.
+    """
+    if not params:
+        return {k: None for k in _CACHE_KEY_PARAMS}
+    return {k: params.get(k) for k in _CACHE_KEY_PARAMS}
+
+
+def _cache_dir_for_url(cleaned_url: str, params: dict | None = None) -> Path:
+    """Return the directory path for a cleaned URL's cache entries.
+
+    Hash composes the URL with the request params that affect response
+    shape (provider_order, scroll_full, wait_until, wait_for_selector,
+    no_style, no_script) so different param combos don't collide.
+    """
+    canonical = json.dumps(
+        {"url": cleaned_url, "params": _normalize_params(params)},
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+    md5 = hashlib.md5(canonical.encode("utf-8")).hexdigest()
     return Path(CACHE_DIR) / md5[:2] / md5
 
 
@@ -103,13 +133,13 @@ def _list_versions(cache_dir: Path) -> list[Path]:
     return sorted(files, key=lambda f: f.name)
 
 
-def read_cache(cleaned_url: str, ttl_hours: float) -> dict | None:
-    """Return the cached result for a cleaned URL if within the given TTL, else None."""
+def read_cache(cleaned_url: str, ttl_hours: float, params: dict | None = None) -> dict | None:
+    """Return the cached result for a cleaned URL + params if within the given TTL, else None."""
     if cache_size_bytes() >= CACHE_MAX_SIZE_BYTES:
         logger.warning("Cache at max size (%d GB limit) — bypassing read for %s", CACHE_MAX_SIZE_BYTES // (1024**3), cleaned_url)
         return None
 
-    cache_dir = _cache_dir_for_url(cleaned_url)
+    cache_dir = _cache_dir_for_url(cleaned_url, params)
     versions = _list_versions(cache_dir)
     if not versions:
         logger.debug("Cache miss (no versions): %s", cleaned_url)
@@ -136,13 +166,13 @@ def read_cache(cleaned_url: str, ttl_hours: float) -> dict | None:
         return None
 
 
-def write_cache(cleaned_url: str, result: dict) -> None:
+def write_cache(cleaned_url: str, result: dict, params: dict | None = None) -> None:
     """Write a successful result to cache atomically, then prune old versions."""
     if cache_size_bytes() >= CACHE_MAX_SIZE_BYTES:
         logger.warning("Cache at max size (%d GB limit) — skipping write for %s", CACHE_MAX_SIZE_BYTES // (1024**3), cleaned_url)
         return
 
-    cache_dir = _cache_dir_for_url(cleaned_url)
+    cache_dir = _cache_dir_for_url(cleaned_url, params)
     try:
         os.makedirs(cache_dir, exist_ok=True)
     except OSError as exc:
