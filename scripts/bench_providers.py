@@ -26,9 +26,6 @@ length, and a one-line success/failure verdict. Each request runs twice
 back-to-back per provider — the first run fights cold scrapling/Camoufox
 spawn (~5-10 s) which would otherwise distort the comparison; we report
 both numbers so you can see warm-vs-cold.
-
-Cache is not used (no `cache=...` query param), so every call really
-hits the provider.
 """
 
 from __future__ import annotations

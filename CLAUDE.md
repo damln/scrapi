@@ -42,7 +42,6 @@ Fetch full HTML content from one or more URLs.
 | `scroll_full` | bool | no | `false` | Scroll full page incrementally to trigger lazy-loaded content. Adds ~5–20s. Supported by `scrapling` and `cloudflare`; no-op for `obscura` and `firecrawl`. |
 | `wait_until` | string | no | — | Obscura and scrapling only. Supported: `networkidle` (mapped to obscura's `networkidle0`). |
 | `wait_for_selector` | string | no | — | Obscura and scrapling only. CSS selector to wait for before reading the page HTML. |
-| `cache` | string | no | — | Opt-in cache TTL, format `<N>h` (e.g. `1h`, `24h`). Absent = cache is not read and nothing is written. When set, a cached result younger than `<N>` hours is served; otherwise the fresh fetch is written to cache. |
 
 **Max 10 URLs per request.**
 
@@ -136,48 +135,6 @@ When a Twitter/X or YouTube URL is confirmed as not found (404) by the dedicated
 - `status: "error"` + `provider: "twitter"` or `"youtube"` + `error: "Not found (404)"` → confirmed 404, the content does not exist
 - `status: "error"` + `error` starts with `"Overall fetch timeout"` → request timed out
 
-### `GET /api/v1/cache`
-
-Return cache statistics: number of entries, total size, and per-entry details.
-
-**Auth:** Bearer token in `Authorization` header.
-
-**Response:**
-
-```json
-{
-  "entry_count": 42,
-  "total_size_bytes": 164392960,
-  "total_size_mb": 156.78,
-  "entries": [
-    {
-      "hash": "a1b2c3d4e5f6...",
-      "versions": 3,
-      "size_bytes": 524288,
-      "size_kb": 512.0,
-      "latest": "20260402T120000Z.json.gz",
-      "latest_age_hours": 2.5
-    }
-  ]
-}
-```
-
-### `DELETE /api/v1/cache`
-
-Clear the entire response cache.
-
-**Auth:** Bearer token in `Authorization` header.
-
-**Response:**
-
-```json
-{
-  "status": "ok",
-  "entries_removed": 42,
-  "size_freed_mb": 156.78
-}
-```
-
 ### `GET /api/v1/agent`
 
 Returns the full content of this `AGENTS.md` file as plain text. Useful for AI agents that consume the scrapi API and need to understand its capabilities, response formats, and error handling at runtime. No auth — intentionally discoverable.
@@ -255,7 +212,7 @@ Download a single asset (image, CSS, JS) and return it as base64-encoded data.
 
 Before fetching, all URLs are cleaned:
 - **Tracking params stripped**: UTM, fbclid, gclid, msclkid, and 40+ other tracking parameters are removed
-- **Query params sorted alphabetically**: ensures consistent URLs for future cache hits
+- **Query params sorted alphabetically**: ensures consistent URLs across requests
 - Response includes both `url` (cleaned) and `raw_url` (original input)
 
 ### Fallback Chain
@@ -300,9 +257,6 @@ Single URL:
 curl -H "Authorization: Bearer dev-token-change-me" "http://localhost:10700/api/v1/content?urls=https://example.com"
 
 curl -H "Authorization: Bearer dev-token-change-me" "http://localhost:10700/api/v1/content?urls=https://www.nytimes.com/spotlight/lifestyle"
-
-# Opt into a 1h response cache
-curl -H "Authorization: Bearer dev-token-change-me" "http://localhost:10700/api/v1/content?urls=https://example.com&cache=1h"
 ```
 
 Multiple URLs (repeat the `urls` param):
@@ -445,26 +399,6 @@ sudo ufw allow from 172.17.0.0/16 to any port 1080 proto tcp comment "SOCKS rela
 
 **`GatewayPorts`:** The server's `/etc/ssh/sshd_config` has `GatewayPorts clientspecified` to allow the tunnel to bind to `0.0.0.0` (required for Docker bridge access).
 
-## Response Cache
-
-Successful responses can be cached to disk as gzip-compressed JSON files, opt-in per request via the `cache=<N>h` query parameter.
-
-- **Opt-in only:** no caching happens unless `cache` is passed. There is no global TTL.
-- **TTL:** supplied per request (e.g. `cache=1h`, `cache=24h`)
-- **Versions kept:** 5 per URL (configurable via `CACHE_MAX_VERSIONS`), providing a history of past fetches
-- **Max total size:** 20 GB (configurable via `CACHE_MAX_SIZE_GB`). When exceeded, caching is fully disabled (no reads, no writes) until cache is cleared
-- **Cache key:** MD5 hash of the cleaned URL (after tracking param removal and query param sorting) **plus** the request params that change response shape: `provider_order`, `scroll_full`, `wait_until`, `wait_for_selector`, `no_style`, `no_script`. Different param combos hash to different cache dirs, so `cache=1h` won't hand back a non-scrolled body to a request that asked for `scroll_full=true`.
-- **Storage:** gzip-compressed JSON files at `{CACHE_DIR}/{md5[:2]}/{md5}/{timestamp}.json.gz`
-- **Atomic writes:** files are written to `.tmp` then renamed (POSIX atomic on same filesystem)
-- **Docker dev:** bind-mount `./cache:/cache` (inspectable from host)
-- **Docker prod:** named volume `scrapi_cache:/cache` (persistent, shared across replicas)
-
-**Behavior:**
-- Without `cache`, every request goes straight to providers and the result is not written to cache
-- With `cache=<N>h`, a cached result younger than N hours is served; otherwise a fresh fetch runs and its successful result is written to cache
-- Only `status: "success"` results are cached. Errors are never cached.
-- `DELETE /api/v1/cache` clears all cached data
-
 ## Environment Variables
 
 - `SCRAPI_API_TOKEN` — required, the bearer token for API auth
@@ -476,6 +410,3 @@ Successful responses can be cached to disk as gzip-compressed JSON files, opt-in
 - `CLOUDFLARE_ACCOUNT_ID` — Cloudflare account ID
 - `PROXY_URL` — optional, SOCKS5 proxy URL (e.g. `socks5://socks-relay:1080`). Routes scrapling/asset fetches through the proxy
 - `OBSCURA_BIN` — optional, path to the Obscura CLI binary (default: `obscura`, resolved via PATH). Provider degrades to next in chain if binary is missing.
-- `CACHE_DIR` — cache directory path (default: `/cache`)
-- `CACHE_MAX_VERSIONS` — max versions to keep per URL (default: 5)
-- `CACHE_MAX_SIZE_GB` — max total cache size in GB (default: 20). Cache disabled when exceeded

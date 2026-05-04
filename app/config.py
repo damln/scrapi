@@ -30,9 +30,3 @@ PROXY_URL = os.environ.get("PROXY_URL", "")
 # isn't found at fetch time, so a missing binary degrades gracefully to the
 # next provider in the order.
 OBSCURA_BIN = os.environ.get("OBSCURA_BIN", "obscura")
-
-# Cache configuration. Caching is opt-in per request via the `cache=<N>h`
-# query parameter; there is no global TTL default.
-CACHE_DIR = os.environ.get("CACHE_DIR", "/cache")
-CACHE_MAX_VERSIONS = int(os.environ.get("CACHE_MAX_VERSIONS", "5"))
-CACHE_MAX_SIZE_BYTES = int(os.environ.get("CACHE_MAX_SIZE_GB", "20")) * 1024 * 1024 * 1024

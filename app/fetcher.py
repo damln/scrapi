@@ -5,7 +5,6 @@ import os
 import signal
 import sys
 
-from app.cache import read_cache, write_cache
 from app.cloudflare_fetcher import fetch_with_cloudflare
 from app.config import CLOUDFLARE_API_KEY, FETCH_SINGLE_URL_TIMEOUT_S, FIRECRAWL_API_KEY, PROVIDER_HARD_TIMEOUT_S, SCRAPLING_MAX_CONCURRENT
 from app.content_validator import validate_content
@@ -227,34 +226,9 @@ async def fetch_single_url(
     scroll_full: bool = False,
     wait_until: str | None = None,
     wait_for_selector: str | None = None,
-    cache_ttl_hours: float | None = None,
 ) -> dict:
-    """Fetch a URL trying providers in the given order.
-
-    When `cache_ttl_hours` is set, a cached result is served if within that TTL,
-    and a successful fresh fetch is written to cache. When None, cache is not
-    consulted and nothing is written.
-    """
+    """Fetch a URL trying providers in the given order."""
     url = clean_url(raw_url)
-
-    # Cache key includes every param that changes the response shape so
-    # `cache=1h` doesn't hand back a non-scrolled body when the request
-    # asked for `scroll_full=true`, or a scrapling response when the
-    # request asked for `provider_order=firecrawl`.
-    cache_params = {
-        "provider_order": provider_order,
-        "scroll_full": scroll_full,
-        "wait_until": wait_until,
-        "wait_for_selector": wait_for_selector,
-        "no_style": no_style,
-        "no_script": no_script,
-    }
-
-    if cache_ttl_hours is not None:
-        cached = await asyncio.to_thread(read_cache, url, cache_ttl_hours, cache_params)
-        if cached is not None:
-            cached["raw_url"] = raw_url
-            return cached
 
     try:
         result = await asyncio.wait_for(
@@ -280,9 +254,6 @@ async def fetch_single_url(
             "error": f"Overall fetch timeout ({FETCH_SINGLE_URL_TIMEOUT_S}s) — request took too long",
             "html": None,
         }
-
-    if cache_ttl_hours is not None and result.get("status") == "success":
-        await asyncio.to_thread(write_cache, url, result, cache_params)
 
     return result
 
@@ -427,7 +398,6 @@ async def fetch_urls(
     scroll_full: bool = False,
     wait_until: str | None = None,
     wait_for_selector: str | None = None,
-    cache_ttl_hours: float | None = None,
 ) -> list[dict]:
     """Fetch multiple URLs concurrently with fallback chain."""
     tasks = [
@@ -439,7 +409,6 @@ async def fetch_urls(
             scroll_full=scroll_full,
             wait_until=wait_until,
             wait_for_selector=wait_for_selector,
-            cache_ttl_hours=cache_ttl_hours,
         )
         for url in urls
     ]
