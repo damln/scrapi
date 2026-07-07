@@ -1,0 +1,68 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - uses: astral-sh/setup-uv@v7
+        with:
+          enable-cache: true
+          cache-dependency-glob: "requirements*.txt"
+      - name: Install lint deps
+        run: uv pip install --system -r requirements-dev.txt
+      - name: Ruff check
+        run: ruff check app tests
+      - name: Ruff format check
+        run: ruff format --check app tests
+      - name: Mypy
+        run: mypy app
+
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - uses: astral-sh/setup-uv@v7
+        with:
+          enable-cache: true
+          cache-dependency-glob: "requirements*.txt"
+      - name: Install runtime + test deps
+        run: uv pip install --system -r requirements.txt
+      - name: Pytest
+        run: pytest -q
+
+  # Optional downstream hook: if the repo owner configured DEPLOY_REPO and
+  # DEPLOY_DISPATCH_TOKEN secrets, notify that repo that main is green.
+  # No-op on forks and clones (the secrets don't exist there).
+  notify-deploy:
+    needs: [lint, test]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    env:
+      DEPLOY_REPO: ${{ secrets.DEPLOY_REPO }}
+      DEPLOY_DISPATCH_TOKEN: ${{ secrets.DEPLOY_DISPATCH_TOKEN }}
+    steps:
+      - name: Send repository_dispatch
+        if: env.DEPLOY_REPO != '' && env.DEPLOY_DISPATCH_TOKEN != ''
+        run: |
+          curl -sSf -X POST \
+            -H "Authorization: Bearer ${DEPLOY_DISPATCH_TOKEN}" \
+            -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/repos/${DEPLOY_REPO}/dispatches" \
+            -d "{\"event_type\":\"deploy\",\"client_payload\":{\"sha\":\"${GITHUB_SHA}\"}}"

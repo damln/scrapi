@@ -1,0 +1,86 @@
+[project]
+name = "scrapi"
+version = "0.1.0"
+description = "Self-hosted scraping gateway: stealth-browser page fetching, assets, PDF/PNG export, and stateless browser actions over HTTP or CLI"
+readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE"]
+requires-python = ">=3.12"
+
+[tool.ruff]
+target-version = "py312"
+line-length = 120
+extend-exclude = ["_tmp", ".venv", "scripts"]
+
+[tool.ruff.lint]
+select = [
+    "E", "W",     # pycodestyle
+    "F",          # pyflakes
+    "I",          # isort
+    "B",          # flake8-bugbear
+    "UP",         # pyupgrade
+    "SIM",        # flake8-simplify
+    "C4",         # comprehensions
+    "ASYNC",      # async correctness
+    "S",          # bandit security subset
+    "RUF",        # ruff-specific
+    "N",          # naming
+    "TID",        # tidy imports
+    "PIE",
+    "RET",        # return statement patterns
+    "TRY",        # try/except patterns
+    "LOG",        # logging
+    "PT",         # pytest style
+    "Q",          # quotes
+    "FA",         # future annotations
+    "PTH",        # pathlib over os.path
+    "T20",        # no print/pprint
+]
+ignore = [
+    "E501",       # line too long; formatter handles long URLs/strings pragmatically
+    "B008",       # function call in default; FastAPI Depends() pattern
+    "TRY003",     # long raise message; restricts useful error messages
+    "TRY300",     # try/else stylistic
+    "RET504",     # unnecessary assign before return; often clearer
+    "SIM108",     # ternary; sometimes if/else is clearer
+    "SIM117",     # nested-with; aesthetic
+    "PT011",      # pytest.raises too broad
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = [
+    "S",          # asserts + bind-all + try/except patterns are normal in tests
+    "ARG",        # unused fixtures in pytest are normal
+    "PLR2004",    # magic values in tests
+]
+"app/main.py" = [
+    "ARG001",     # FastAPI `_token: str = Depends(verify_token)` is intentional
+]
+
+[tool.ruff.lint.isort]
+known-first-party = ["app"]
+combine-as-imports = true
+
+[tool.ruff.lint.flake8-tidy-imports]
+ban-relative-imports = "all"
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+docstring-code-format = true
+
+[tool.mypy]
+python_version = "3.12"
+warn_unused_configs = true
+warn_redundant_casts = true
+warn_unused_ignores = true
+warn_return_any = true
+no_implicit_optional = true
+strict_optional = true
+strict_equality = true
+ignore_missing_imports = true
+files = ["app"]
+
+[[tool.mypy.overrides]]
+module = "tests.*"
+ignore_errors = true

@@ -1,0 +1,43 @@
+name: ${DIEZ_APP:-scrapi}-${DIEZ_BRANCH:-main}
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    user: "${APP_UID:-1002}:${APP_GID:-1002}"
+    expose:
+      - "10700"
+    volumes:
+      - .:/app
+    env_file:
+      - path: .env
+        required: false
+      - path: .env.development
+        required: false
+    environment:
+      SCRAPI_API_TOKEN: ${SCRAPI_API_TOKEN:-dev-token-change-me}
+    command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "10700", "--reload"]
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.${DIEZ_APP:-scrapi}-${DIEZ_BRANCH:-main}-web.entrypoints=websecure"
+      - "traefik.http.routers.${DIEZ_APP:-scrapi}-${DIEZ_BRANCH:-main}-web.middlewares=ratelimit-standard@file"
+      - "traefik.http.routers.${DIEZ_APP:-scrapi}-${DIEZ_BRANCH:-main}-web.rule=Host(`${DIEZ_BRANCH:-main}.${DIEZ_APP:-scrapi}.diez.damln.com`)"
+      - "traefik.http.routers.${DIEZ_APP:-scrapi}-${DIEZ_BRANCH:-main}-web.tls=true"
+      - "traefik.http.routers.${DIEZ_APP:-scrapi}-${DIEZ_BRANCH:-main}-web.tls.certresolver=letsencrypt"
+      - "traefik.http.services.${DIEZ_APP:-scrapi}-${DIEZ_BRANCH:-main}-web.loadbalancer.server.port=10700"
+      - "diez.dev.app=${DIEZ_APP:-scrapi}"
+      - "diez.dev.branch=${DIEZ_BRANCH:-main}"
+    networks:
+      - default
+      - web
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:10700/health"]
+      interval: 5s
+      timeout: 3s
+      retries: 3
+      start_period: 15s
+
+networks:
+  web:
+    external: true

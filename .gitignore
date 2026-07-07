@@ -1,0 +1,25 @@
+.DS_Store
+
+__pycache__/
+*.py[cod]
+*$py.class
+
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+.env
+.env.*
+!.env.example
+
+.venv/
+cache/
+_tmp/
+
+docker-compose.prod.yml
+
+# Private deployment config — never published.
+# See deploy/README.md for how prod deploys work from a private repo.
+deploy/
