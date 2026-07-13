@@ -30,6 +30,7 @@ curl -sS http://localhost:10700/api/v1/agent
 The same pipeline is available as a CLI — useful for one-shot jobs, cron, or invoking from another container:
 
 ```sh
+python -m app.cli --help       # agent-friendly CLI guide and examples
 python -m app.cli content https://example.com --format markdown
 python -m app.cli asset https://example.com/logo.png --max-width 800 -o logo.png
 python -m app.cli export --url https://example.com -o page.pdf
