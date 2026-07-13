@@ -45,8 +45,9 @@ HELP_FORMATTER = argparse.RawDescriptionHelpFormatter
 CLI_DESCRIPTION = """\
 Run Scrapi's full scraping pipeline directly, without starting the HTTP server.
 
-The CLI uses the same provider fallback, content validation, markdown conversion,
-asset processing, PDF/PNG rendering, and browser actions as the API.
+Content results include cleaned HTML, markdown, and head metadata. Captcha or shell
+pages fail validation so the next provider can be tried. Asset processing, PDF/PNG
+rendering, and browser actions use the same code paths as the API.
 SCRAPI_API_TOKEN is not required for CLI commands."""
 
 CLI_EPILOG = f"""\

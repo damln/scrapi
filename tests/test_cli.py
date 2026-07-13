@@ -12,6 +12,8 @@ def test_main_help_is_an_agent_discoverable_cli_guide():
     for detail in (
         "without starting the HTTP server",
         "SCRAPI_API_TOKEN is not required",
+        "cleaned HTML, markdown, and head metadata",
+        "next provider can be tried",
         "python -m app.cli content https://example.com --format markdown",
         "python -m app.cli COMMAND --help",
         "python -m app.cli agent > scrapi-api.md",
