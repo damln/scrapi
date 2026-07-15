@@ -293,9 +293,7 @@ def _assemble_raster_pdf(images: Iterable[Image.Image], width_pt: float, height_
     output.write(b"0000000000 65535 f \n")
     for offset in offsets[1:]:
         output.write(f"{offset:010} 00000 n \n".encode())
-    output.write(
-        f"trailer\n<< /Size {len(objects) + 1} /Root 1 0 R >>\nstartxref\n{xref_offset}\n%%EOF\n".encode()
-    )
+    output.write(f"trailer\n<< /Size {len(objects) + 1} /Root 1 0 R >>\nstartxref\n{xref_offset}\n%%EOF\n".encode())
     return output.getvalue()
 
 
