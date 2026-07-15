@@ -19,6 +19,10 @@ curl -H "Authorization: Bearer dev-token-change-me" \
   "http://localhost:10700/api/v1/content?urls=https://example.com"
 ```
 
+The bearer header may be omitted for direct requests to `localhost`, loopback addresses,
+`host.docker.internal`, or Docker's private `172.16.0.0/12` bridge range. Requests through a
+public hostname still require authentication, including when a reverse proxy runs on a Docker network.
+
 Full endpoint documentation is generated live from the running code:
 
 ```sh
@@ -61,7 +65,7 @@ All configuration is via environment variables — see `.env.example`. Highlight
 
 | Variable | Default | Purpose |
 | --- | --- | --- |
-| `SCRAPI_API_TOKEN` | — | Bearer token for the HTTP API (required to serve; not needed for the CLI) |
+| `SCRAPI_API_TOKEN` | — | Bearer token for non-local HTTP API calls (required to serve; not needed for local calls or the CLI) |
 | `PROXY_URL` | empty (direct) | Optional proxy for browser fetches, e.g. `socks5://host:1080` |
 | `FIRECRAWL_API_KEY` | empty (disabled) | Enables the `firecrawl` fallback provider |
 | `BROWSER_MAX_CONCURRENT` | `2` | Cap on concurrent Chromium instances (~500 MB RAM each) |

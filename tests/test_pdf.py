@@ -44,6 +44,8 @@ def test_export_defaults_to_binary_pdf(mock_render, client):
     assert request.page.width == "10in"
     assert request.page.height == "7.5in"
     assert request.page.print_background is True
+    assert request.page.rasterize is True
+    assert request.page.raster_quality == "best"
     assert request.media == "screen"
 
 
@@ -168,6 +170,8 @@ def test_export_accepts_render_options(mock_render, client):
                 "margin": {"top": "0.25in", "right": "0", "bottom": "0.25in", "left": "0"},
                 "scale": 0.9,
                 "print_background": False,
+                "rasterize": True,
+                "raster_quality": "optimized",
             },
             "png": {
                 "full_page": False,
@@ -205,6 +209,8 @@ def test_export_accepts_render_options(mock_render, client):
     assert request.media == "print"
     assert request.page.width == "8.5in"
     assert request.page.print_background is False
+    assert request.page.rasterize is True
+    assert request.page.raster_quality == "optimized"
     assert request.wait.selector == "main"
     assert request.wait.selector_required is False
     assert request.wait.selector_timeout_ms == 5000

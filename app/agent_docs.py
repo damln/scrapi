@@ -43,7 +43,7 @@ def render_agent_markdown(app: FastAPI) -> str:
         "# Scrapi API",
         "",
         f"base_url: {SCRAPI_BASE_URL}",
-        "auth: Authorization: Bearer $SCRAPI_API_TOKEN except /health, /status, /api/v1/status, /api/v1/agent",
+        "auth: Authorization: Bearer $SCRAPI_API_TOKEN except public endpoints and direct local/Docker calls",
         "source: live FastAPI/OpenAPI + Pydantic schemas generated at request time",
         "",
         "## Rules",
@@ -87,7 +87,7 @@ def _render_operation(
     title = f"{method} {path}"
     lines = ["", f"### {title}"]
     security = operation.get("security")
-    lines.append(f"auth: {'Bearer required' if security else 'public'}")
+    lines.append(f"auth: {'Bearer required except direct local/Docker calls' if security else 'public'}")
 
     for note in ENDPOINT_NOTES.get(path, []):
         lines.append(f"- {note}")

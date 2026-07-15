@@ -1,19 +1,26 @@
 from __future__ import annotations
 
 import base64
+import io
 import json
 import logging
+import math
 import sys
+import zlib
+from collections.abc import Iterable, Iterator
 from typing import Any
 from urllib.parse import urlparse
 
 from cloakbrowser import launch
+from PIL import Image
 from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
 
 from app.ad_blocker import is_blocked
 from app.config import PROXY_URL
 
 logger = logging.getLogger(__name__)
+
+RASTER_QUALITY_SCALES = {"best": 2, "optimized": 1}
 
 
 def _origin(url: str) -> str:
@@ -56,6 +63,9 @@ def _context_options(request: dict[str, Any]) -> dict[str, Any]:
     options: dict[str, Any] = {
         "viewport": request["viewport"],
     }
+    page_options = request["page"]
+    if page_options.get("rasterize"):
+        options["device_scale_factor"] = RASTER_QUALITY_SCALES[page_options.get("raster_quality", "best")]
     auth = request.get("basic_auth")
     if auth:
         credentials = {
@@ -215,6 +225,115 @@ def _remove_elements(page, remove: dict[str, Any]) -> None:
         )
 
 
+def _force_exact_pdf_colors(page) -> None:
+    """Keep browser colors and gradients unchanged by print color heuristics."""
+    page.add_style_tag(
+        content="""
+        html, body {
+          -webkit-print-color-adjust: exact !important;
+          print-color-adjust: exact !important;
+        }
+        """
+    )
+
+
+def _pdf_dimension_to_points(value: str | int | float) -> float:
+    if isinstance(value, int | float):
+        return float(value) * 72
+    units = {"px": 0.75, "in": 72.0, "cm": 72.0 / 2.54, "mm": 72.0 / 25.4}
+    for unit, multiplier in units.items():
+        if value.endswith(unit):
+            return float(value[: -len(unit)]) * multiplier
+    raise ValueError(f"unsupported raster PDF dimension: {value}")
+
+
+def _pdf_stream(data: bytes, attributes: str = "") -> bytes:
+    prefix = f"<< /Length {len(data)}{attributes} >>\nstream\n".encode()
+    return prefix + data + b"\nendstream"
+
+
+def _prepare_raster_image(image: Image.Image) -> tuple[int, int, bytes]:
+    rgb_image = image.convert("RGB")
+    return rgb_image.width, rgb_image.height, zlib.compress(rgb_image.tobytes(), level=9)
+
+
+def _assemble_raster_pdf(images: Iterable[Image.Image], width_pt: float, height_pt: float) -> bytes:
+    prepared_images = [_prepare_raster_image(image) for image in images]
+    objects: list[bytes] = []
+    page_ids = [3 + index * 3 for index in range(len(prepared_images))]
+    objects.append(b"<< /Type /Catalog /Pages 2 0 R >>")
+    kids = " ".join(f"{object_id} 0 R" for object_id in page_ids)
+    objects.append(f"<< /Type /Pages /Count {len(prepared_images)} /Kids [{kids}] >>".encode())
+
+    for index, (width_px, height_px, image_data) in enumerate(prepared_images):
+        page_id = page_ids[index]
+        content_id = page_id + 1
+        image_id = page_id + 2
+        page_object = (
+            f"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 {width_pt:g} {height_pt:g}] "
+            f"/Resources << /XObject << /Im0 {image_id} 0 R >> >> /Contents {content_id} 0 R >>"
+        ).encode()
+        content = f"q\n{width_pt:g} 0 0 {height_pt:g} 0 0 cm\n/Im0 Do\nQ".encode()
+        image_attributes = (
+            f" /Type /XObject /Subtype /Image /Width {width_px} /Height {height_px}"
+            " /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /FlateDecode /Interpolate false"
+        )
+        objects.extend([page_object, _pdf_stream(content), _pdf_stream(image_data, image_attributes)])
+
+    output = io.BytesIO()
+    output.write(b"%PDF-1.4\n%\xe2\xe3\xcf\xd3\n")
+    offsets = [0]
+    for object_id, body in enumerate(objects, start=1):
+        offsets.append(output.tell())
+        output.write(f"{object_id} 0 obj\n".encode())
+        output.write(body)
+        output.write(b"\nendobj\n")
+    xref_offset = output.tell()
+    output.write(f"xref\n0 {len(objects) + 1}\n".encode())
+    output.write(b"0000000000 65535 f \n")
+    for offset in offsets[1:]:
+        output.write(f"{offset:010} 00000 n \n".encode())
+    output.write(
+        f"trailer\n<< /Size {len(objects) + 1} /Root 1 0 R >>\nstartxref\n{xref_offset}\n%%EOF\n".encode()
+    )
+    return output.getvalue()
+
+
+def _rasterized_pdf(page, request: dict[str, Any]) -> bytes:
+    page_options = request["page"]
+    if page_options.get("format"):
+        raise ValueError("rasterize currently requires explicit page width and height")
+    if page_options["scale"] != 1:
+        raise ValueError("rasterize currently requires page scale 1")
+    if any(str(value) != "0" for value in page_options["margin"].values()):
+        raise ValueError("rasterize currently requires zero page margins")
+
+    page_height = request["viewport"]["height"]
+    document_height = page.evaluate(
+        "() => Math.max(document.body?.scrollHeight || 0, document.documentElement?.scrollHeight || 0)"
+    )
+    page_count = math.ceil(document_height / page_height)
+
+    def capture_pages() -> Iterator[Image.Image]:
+        for index in range(page_count):
+            page.evaluate("y => window.scrollTo(0, y)", index * page_height)
+            screenshot = page.screenshot(
+                type="png",
+                full_page=False,
+                omit_background=False,
+                scale="device",
+            )
+            with Image.open(io.BytesIO(screenshot)) as image:
+                image.load()
+                yield image.copy()
+
+    return _assemble_raster_pdf(
+        capture_pages(),
+        _pdf_dimension_to_points(page_options["width"]),
+        _pdf_dimension_to_points(page_options["height"]),
+    )
+
+
 def _write_raw_html(page, request: dict[str, Any]) -> None:
     page.goto(
         "about:blank",
@@ -278,7 +397,11 @@ def render(request: dict[str, Any]) -> dict[str, Any]:
             content_type = "image/png"
             extension = "png"
         else:
-            data = page.pdf(**_pdf_options(request["page"]))
+            _force_exact_pdf_colors(page)
+            if request["page"].get("rasterize"):
+                data = _rasterized_pdf(page, request)
+            else:
+                data = page.pdf(**_pdf_options(request["page"]))
             content_type = "application/pdf"
             extension = "pdf"
 

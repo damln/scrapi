@@ -24,6 +24,7 @@ GotoWaitUntil = Literal["load", "domcontentloaded", "networkidle", "commit"]
 BasicAuthSend = Literal["unauthorized", "always"]
 ExportType = Literal["pdf", "png"]
 PngScale = Literal["css", "device"]
+RasterQuality = Literal["best", "optimized"]
 
 PDF_FORMATS = {
     "Letter",
@@ -81,6 +82,8 @@ class PdfPageOptions(BaseModel):
     footer_template: str | None = None
     outline: bool = False
     tagged: bool = False
+    rasterize: bool = True
+    raster_quality: RasterQuality = "best"
 
     @model_validator(mode="before")
     @classmethod
@@ -210,6 +213,8 @@ def _default_page_options() -> PdfPageOptions:
         footer_template=None,
         outline=False,
         tagged=False,
+        rasterize=True,
+        raster_quality="best",
     )
 
 
