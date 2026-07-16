@@ -1,6 +1,6 @@
 # Scrapi
 
-Scrapi is a self-hosted scraping gateway. It fetches page content through a stealth Chromium ([CloakBrowser](https://github.com/CloakHQ/CloakBrowser)) with an optional [Firecrawl](https://firecrawl.dev) fallback, and also handles asset downloads, PDF/PNG exports, and stateless browser actions — over a small HTTP API or directly from the command line.
+Scrapi is a self-hosted scraping gateway. It fetches page content through a stealth Chromium ([CloakBrowser](https://github.com/CloakHQ/CloakBrowser)) with an optional [Firecrawl](https://firecrawl.dev) fallback, and also handles browser evidence capture, asset downloads, PDF/PNG exports, and stateless browser actions — over a small HTTP API or directly from the command line.
 
 - **Providers**: `cloak` (local stealth Chromium, no API key) → `firecrawl` (optional, needs `FIRECRAWL_API_KEY`). Twitter/X and YouTube URLs are served by dedicated keyless fetchers.
 - **Output**: cleaned HTML + markdown + head metadata, with content validation so captcha/shell pages are rejected and the next provider is tried.
@@ -18,6 +18,20 @@ SCRAPI_API_TOKEN=dev-token-change-me uv run uvicorn app.main:app --reload --port
 curl -H "Authorization: Bearer dev-token-change-me" \
   "http://localhost:10700/api/v1/content?urls=https://example.com"
 ```
+
+Capture browser evidence as a portable ZIP:
+
+```sh
+curl -sS -X POST http://localhost:10700/api/v1/capture \
+  -H 'Content-Type: application/json' \
+  -d '{"url":"https://example.com","scroll_full":true,"video":true,"resources":"assets"}' \
+  -o scrapi-capture.zip
+unzip scrapi-capture.zip -d capture
+```
+
+The archive contains `result.json` plus the requested screenshot, WebM, HAR, rendered HTML,
+and bounded resource downloads. The capture endpoint uses the same CloakBrowser, cookie
+dismissal, ad blocking, proxy profiles, retries, and hard process cleanup as the CLI.
 
 The bearer header may be omitted for direct requests to `localhost`, loopback addresses,
 `host.docker.internal`, or Docker's private `172.16.0.0/12` bridge range. Requests through a
@@ -38,12 +52,15 @@ python -m app.cli --help       # agent-friendly CLI guide and examples
 python -m app.cli content https://example.com --format markdown
 python -m app.cli asset https://example.com/logo.png --max-width 800 -o logo.png
 python -m app.cli export --url https://example.com -o page.pdf
+python -m app.cli capture https://example.com -o _tmp/example --video --scroll-full --resources assets
 python -m app.cli actions --request action.json
 python -m app.cli status
 python -m app.cli agent        # print the API docs offline
 ```
 
 `SCRAPI_API_TOKEN` is only needed to serve HTTP; the CLI runs without it.
+
+`capture` uses the same CloakBrowser, humanized input, proxy profiles, ad blocking, cookie dismissal, and killable subprocess model as the content provider. It can emit a full/viewport screenshot, WebM, HAR, rendered HTML, and bounded response-resource downloads. Run `python -m app.cli capture --help` for all controls.
 
 ## Docker
 

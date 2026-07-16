@@ -38,6 +38,10 @@ RUN pip install --no-cache-dir --require-hashes --no-deps -r requirements.txt
 # `scrapling install`, removed when scrapling was retired.
 RUN playwright install-deps chromium
 
+# Playwright uses its matching ffmpeg build for browser-context WebM video.
+# Install it at build time so CLI captures never download tooling at runtime.
+RUN playwright install ffmpeg
+
 # CloakBrowser's custom Chromium binary (~200 MB) auto-downloads on first
 # `launch()` — we trigger that here so the first /content request after a
 # cold deploy doesn't pay the download tax.

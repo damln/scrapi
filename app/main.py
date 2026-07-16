@@ -1,14 +1,24 @@
+import asyncio
+import shutil
+import tempfile
 from contextlib import asynccontextmanager, suppress
 from pathlib import Path
 
 from fastapi import Depends, FastAPI, Query
-from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse, Response
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, PlainTextResponse, Response
 from fastapi.staticfiles import StaticFiles
+from starlette.background import BackgroundTask
 
 from app import asset_fetcher, config, firecrawl_fetcher, twitter_fetcher, youtube_fetcher
 from app.action_runner import ActionError, ActionRequest, run_action
 from app.agent_docs import render_agent_markdown
 from app.auth import verify_token
+from app.browser_capture import (
+    BrowserCaptureApiRequest,
+    BrowserCaptureError,
+    build_capture_archive,
+    capture_browser,
+)
 from app.fetcher import DEFAULT_PROVIDER_ORDER, fetch_urls
 from app.pdf_renderer import PdfRenderError, PdfRenderRequest, PdfRenderResult, render_export
 from app.proxy_profiles import ProxyProfileError, available_proxy_profiles, resolve_proxy_profile
@@ -218,6 +228,43 @@ async def render_export_endpoint(
     _token: str = Depends(verify_token),
 ):
     return await _render_export_response(request)
+
+
+@app.post("/api/v1/capture")
+async def capture_browser_endpoint(
+    request: BrowserCaptureApiRequest,
+    _token: str = Depends(verify_token),
+):
+    """Return a stateless ZIP containing capture metadata and requested evidence."""
+    try:
+        proxy_url = resolve_proxy_profile(request.proxy_profile)
+    except ProxyProfileError as exc:
+        return JSONResponse(status_code=400, content={"status": "error", "error": str(exc)})
+
+    root = Path(await asyncio.to_thread(tempfile.mkdtemp, prefix="scrapi-capture-api-"))
+    evidence = root / "evidence"
+    archive = root / "scrapi-capture.zip"
+    try:
+        result = await capture_browser(request.to_capture_request(str(evidence), proxy_url))
+        portable = await asyncio.to_thread(build_capture_archive, result, evidence, archive)
+    except BrowserCaptureError as exc:
+        await asyncio.to_thread(shutil.rmtree, root, True)
+        return JSONResponse(status_code=502, content={"status": "error", "error": str(exc)})
+    except Exception:
+        await asyncio.to_thread(shutil.rmtree, root, True)
+        raise
+
+    headers = {
+        "X-Scrapi-Capture-Status": portable["status"],
+        "X-Scrapi-Http-Status": str(portable.get("http_status") or ""),
+    }
+    return FileResponse(
+        archive,
+        media_type="application/zip",
+        filename="scrapi-capture.zip",
+        headers=headers,
+        background=BackgroundTask(shutil.rmtree, root, True),
+    )
 
 
 # ── Actions: replay an inline session into a stealth browser and act ──

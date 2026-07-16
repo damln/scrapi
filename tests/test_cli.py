@@ -6,7 +6,7 @@ from app.cli import build_parser
 def test_main_help_is_an_agent_discoverable_cli_guide():
     help_text = build_parser().format_help()
 
-    for command in ("content", "asset", "export", "actions", "status", "agent"):
+    for command in ("content", "asset", "export", "capture", "actions", "status", "agent"):
         assert command in help_text
 
     for detail in (
@@ -33,6 +33,7 @@ def test_main_help_is_an_agent_discoverable_cli_guide():
         ("content", ("--provider-order", "--proxy-profile", "--format", "examples:")),
         ("asset", ("--output-format", "--max-width", "base64-encoded data", "examples:")),
         ("export", ("--url", "--html-file", "--request", "binary stdout", "examples:")),
+        ("capture", ("--video", "--resources", "cookie dismissal", "examples:")),
         ("actions", ("--request", "read JSON from stdin", "agent command", "examples:")),
         ("status", ("--proxy-profile", "JSON report", "examples:")),
         ("agent", ("Pydantic models", "scrapi-api.md", "examples:")),

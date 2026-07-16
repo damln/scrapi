@@ -10,6 +10,7 @@ Usage (from the repo, a venv, or inside the Docker image):
     python -m app.cli content https://example.com --format markdown
     python -m app.cli asset https://example.com/logo.png -o logo.png
     python -m app.cli export --url https://example.com -o page.pdf
+    python -m app.cli capture https://example.com -o _tmp/example --video
     python -m app.cli actions --request request.json
     python -m app.cli status
     python -m app.cli agent
@@ -56,6 +57,7 @@ quick start:
   python -m app.cli content https://example.com --format markdown
   python -m app.cli asset https://example.com/logo.png --max-width 800 -o logo.png
   python -m app.cli export --url https://example.com -o page.pdf
+  python -m app.cli capture https://example.com -o _tmp/example --scroll-full
   python -m app.cli actions --request action.json
   python -m app.cli status
   python -m app.cli agent > scrapi-api.md
@@ -64,6 +66,7 @@ output behavior:
   content   JSON by default; --format html/markdown prints one URL's content
   asset     JSON with base64 data by default; -o writes decoded bytes
   export    binary PDF/PNG to stdout by default; -o writes a file
+  capture   screenshot/video/HAR/DOM/resources to an evidence directory
   actions   JSON result and browser action log
   status    JSON proxy-connectivity report
   agent     complete agent-facing API docs and request schemas as markdown
@@ -226,6 +229,12 @@ async def _cmd_actions(args: argparse.Namespace) -> int:
     return 0 if result.status == "success" else 1
 
 
+async def _cmd_capture(args: argparse.Namespace) -> int:
+    from app.capture_cli import run_capture
+
+    return await run_capture(args)
+
+
 async def _cmd_status(args: argparse.Namespace) -> int:
     result = await get_status(args.proxy_profile)
     _emit_json(result)
@@ -342,6 +351,26 @@ examples:
     )
     export.add_argument("-o", "--output", metavar="FILE", help="Write output to FILE (default: binary stdout)")
     export.set_defaults(handler=_cmd_export)
+
+    capture = sub.add_parser(
+        "capture",
+        help="Capture browser evidence through CloakBrowser",
+        description=(
+            "Capture screenshots, video, HAR, rendered DOM, and optional network resources while reusing "
+            "Scrapi's CloakBrowser, ad blocking, cookie dismissal, proxy profiles, and process isolation."
+        ),
+        epilog="""\
+examples:
+  python -m app.cli capture https://example.com -o _tmp/example
+  python -m app.cli capture https://example.com -o _tmp/example --video --scroll-full
+  python -m app.cli capture https://example.com -o _tmp/example --resources assets
+""",
+        formatter_class=HELP_FORMATTER,
+    )
+    from app.capture_cli import add_capture_arguments
+
+    add_capture_arguments(capture)
+    capture.set_defaults(handler=_cmd_capture)
 
     actions = sub.add_parser(
         "actions",

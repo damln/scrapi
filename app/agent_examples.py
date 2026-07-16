@@ -5,6 +5,7 @@ import json
 from dataclasses import asdict
 
 from app.action_runner import ActionRequest, ActionResult
+from app.browser_capture import BrowserCaptureApiRequest
 from app.fetcher import DEFAULT_PROVIDER_ORDER, _post_process, _success
 from app.pdf_renderer import PdfRenderRequest, PdfRenderResult
 
@@ -33,6 +34,14 @@ def curl_examples() -> dict[str, list[str]]:
             "params": {"text": "hello", "dry_run": True},
         }
     ).model_dump(mode="json", exclude_none=True)
+    capture_body = BrowserCaptureApiRequest.model_validate(
+        {
+            "url": EXAMPLE_PAGE_URL,
+            "video": True,
+            "scroll_full": True,
+            "resources": "assets",
+        }
+    ).model_dump(mode="json", exclude_none=True)
 
     return {
         "GET /api/v1/content": [
@@ -52,6 +61,13 @@ def curl_examples() -> dict[str, list[str]]:
             '  -H "Content-Type: application/json" \\',
             f"  -d '{_compact_json(export_body)}' \\",
             "  -o scrapi.pdf",
+        ],
+        "POST /api/v1/capture": [
+            'curl -sS -X POST "$SCRAPI_BASE_URL/api/v1/capture" \\',
+            '  -H "Authorization: Bearer $SCRAPI_API_TOKEN" \\',
+            '  -H "Content-Type: application/json" \\',
+            f"  -d '{_compact_json(capture_body)}' \\",
+            "  -o scrapi-capture.zip",
         ],
         "POST /api/v1/actions": [
             'curl -sS -X POST "$SCRAPI_BASE_URL/api/v1/actions" \\',
@@ -108,6 +124,13 @@ def response_examples() -> dict[str, object]:
                 "content-disposition": f'inline; filename="scrapi.{export_result.extension}"',
                 "x-scrapi-final-url": export_result.final_url,
                 "x-scrapi-http-status": export_result.http_status,
+            },
+        },
+        "POST /api/v1/capture": {
+            "body": "<zip: result.json + requested artifacts>",
+            "headers": {
+                "content-type": "application/zip",
+                "content-disposition": 'attachment; filename="scrapi-capture.zip"',
             },
         },
         "POST /api/v1/actions": asdict(action_result),

@@ -22,6 +22,10 @@ ENDPOINT_NOTES = {
     "/api/v1/export": [
         "Renders url or html to binary PDF/PNG. Response body is the file bytes, not JSON.",
     ],
+    "/api/v1/capture": [
+        "Runs the Scrapi CloakBrowser stack and returns a ZIP containing result.json plus requested screenshot, WebM, HAR, rendered HTML, and resources.",
+        "Cookie dismissal, ad blocking, retries, and hard process cleanup are enabled by default.",
+    ],
     "/api/v1/actions": [
         "Runs a stateless browser action. The caller supplies cookies/session on every request.",
     ],

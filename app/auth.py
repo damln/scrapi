@@ -9,6 +9,7 @@ security = HTTPBearer(auto_error=False)
 
 LOCAL_HOSTNAMES = frozenset({"localhost", "host.docker.internal"})
 DOCKER_IPV4_NETWORK = ip_network("172.16.0.0/12")
+DOCKER_DESKTOP_IPV4_NETWORK = ip_network("192.168.65.0/24")
 
 
 def _is_local_request(request: Request) -> bool:
@@ -33,7 +34,11 @@ def _is_local_request(request: Request) -> bool:
     else:
         destination_is_local = destination_address.is_loopback or destination_address in DOCKER_IPV4_NETWORK
 
-    client_is_local = client_address.is_loopback or client_address in DOCKER_IPV4_NETWORK
+    client_is_local = (
+        client_address.is_loopback
+        or client_address in DOCKER_IPV4_NETWORK
+        or client_address in DOCKER_DESKTOP_IPV4_NETWORK
+    )
     return client_is_local and destination_is_local
 
 

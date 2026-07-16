@@ -37,6 +37,7 @@ def test_content_accepts_valid_token(client):
         ("::1", "http://localhost:10700"),
         ("172.17.0.2", "http://host.docker.internal:10700"),
         ("172.18.0.1", "http://172.18.0.2:10700"),
+        ("192.168.65.1", "http://127.0.0.1:10700"),
     ],
 )
 def test_local_requests_do_not_require_auth(client_host, base_url):
