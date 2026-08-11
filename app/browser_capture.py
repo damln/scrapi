@@ -7,13 +7,8 @@ CloakBrowser plus every Chromium helper. Browser behavior lives in
 
 from __future__ import annotations
 
-import asyncio
-import contextlib
 import copy
 import json
-import os
-import signal
-import sys
 import zipfile
 from dataclasses import asdict, dataclass
 from pathlib import Path
@@ -21,6 +16,8 @@ from typing import Any, Literal, cast
 from urllib.parse import urlparse
 
 from pydantic import BaseModel, Field, field_validator
+
+from app.worker_process import run_worker_process
 
 CookieMode = Literal["dismiss", "keep"]
 ScreenshotMode = Literal["full", "viewport", "off"]
@@ -132,54 +129,32 @@ def build_capture_archive(result: dict[str, Any], evidence_dir: Path, archive_pa
     return portable
 
 
-def _killpg(pid: int) -> None:
-    try:
-        pgid = os.getpgid(pid)
-    except ProcessLookupError:
-        return
-    with contextlib.suppress(ProcessLookupError, PermissionError):
-        os.killpg(pgid, signal.SIGKILL)
-
-
 async def capture_browser(request: BrowserCaptureRequest) -> dict[str, Any]:
     attempts = max(1, request.retries + 1)
     last_error = "capture failed"
     payload = json.dumps(asdict(request)).encode()
 
     for attempt in range(1, attempts + 1):
-        proc = await asyncio.create_subprocess_exec(
-            sys.executable,
-            "-m",
-            "app.browser_capture_worker",
-            stdin=asyncio.subprocess.PIPE,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-            start_new_session=True,
-        )
         try:
-            stdout, stderr = await asyncio.wait_for(proc.communicate(payload), timeout=request.hard_timeout_seconds)
+            process_result = await run_worker_process(
+                "app.browser_capture_worker",
+                input_bytes=payload,
+                timeout_seconds=request.hard_timeout_seconds,
+            )
         except TimeoutError:
-            _killpg(proc.pid)
-            with contextlib.suppress(TimeoutError):
-                await asyncio.wait_for(proc.wait(), timeout=3)
             last_error = f"attempt {attempt} exceeded {request.hard_timeout_seconds}s"
             continue
-        except asyncio.CancelledError:
-            _killpg(proc.pid)
-            with contextlib.suppress(TimeoutError):
-                await asyncio.wait_for(proc.wait(), timeout=3)
-            raise
 
-        stderr_text = stderr.decode(errors="replace").strip()
+        stderr_text = process_result.stderr.decode(errors="replace").strip()
         try:
-            result = json.loads(stdout.decode(errors="replace"))
+            result = json.loads(process_result.stdout.decode(errors="replace"))
         except json.JSONDecodeError:
             result = {"status": "error", "error": stderr_text or "worker returned invalid JSON"}
 
-        if proc.returncode == 0 and result.get("status") == "success":
+        if process_result.returncode == 0 and result.get("status") == "success":
             result["attempt"] = attempt
             result["attempts_allowed"] = attempts
             return cast(dict[str, Any], result)
-        last_error = result.get("error") or stderr_text or f"worker exit {proc.returncode}"
+        last_error = result.get("error") or stderr_text or f"worker exit {process_result.returncode}"
 
     raise BrowserCaptureError(f"capture failed after {attempts} attempt(s): {last_error}")

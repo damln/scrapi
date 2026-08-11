@@ -17,13 +17,8 @@ from __future__ import annotations
 import asyncio
 import base64
 import binascii
-import contextlib
 import json
-import logging
-import os
 import shutil
-import signal
-import sys
 import tempfile
 from dataclasses import dataclass
 from pathlib import Path
@@ -34,8 +29,7 @@ from pydantic import BaseModel, Field, model_validator
 
 from app import asset_fetcher
 from app.config import ACTION_MAX_CONCURRENT, ACTION_RENDER_TIMEOUT_MS
-
-logger = logging.getLogger(__name__)
+from app.worker_process import run_worker_process
 
 SameSite = Literal["Strict", "Lax", "None"]
 
@@ -168,19 +162,6 @@ def _get_semaphore() -> asyncio.Semaphore:
     return _action_semaphore
 
 
-def _killpg(pid: int) -> None:
-    try:
-        pgid = os.getpgid(pid)
-    except ProcessLookupError:
-        return
-    try:
-        os.killpg(pgid, signal.SIGKILL)
-    except ProcessLookupError:
-        pass
-    except PermissionError as exc:
-        logger.warning("killpg(%s) denied: %s", pgid, exc)
-
-
 async def _resolve_media(media: list[MediaItem], dest: Path) -> list[str]:
     paths: list[str] = []
     for index, item in enumerate(media):
@@ -239,38 +220,21 @@ async def run_action(request: ActionRequest) -> ActionResult:
 async def _run_in_subprocess(payload: dict, step_timeout_ms: int) -> ActionResult:
     timeout_ms = max(ACTION_RENDER_TIMEOUT_MS, step_timeout_ms + 15_000)
 
-    proc = await asyncio.create_subprocess_exec(
-        sys.executable,
-        "-m",
-        "app.action_worker",
-        stdin=asyncio.subprocess.PIPE,
-        stdout=asyncio.subprocess.PIPE,
-        stderr=asyncio.subprocess.PIPE,
-        start_new_session=True,
-    )
-
     try:
-        stdout, stderr = await asyncio.wait_for(
-            proc.communicate(json.dumps(payload).encode("utf-8")),
-            timeout=timeout_ms / 1000,
+        process_result = await run_worker_process(
+            "app.action_worker",
+            input_bytes=json.dumps(payload).encode("utf-8"),
+            timeout_seconds=timeout_ms / 1000,
         )
     except TimeoutError as exc:
-        _killpg(proc.pid)
-        with contextlib.suppress(TimeoutError):
-            await asyncio.wait_for(proc.wait(), timeout=3)
         raise ActionError(f"action timeout ({timeout_ms}ms)", status_code=504) from exc
-    except asyncio.CancelledError:
-        _killpg(proc.pid)
-        with contextlib.suppress(TimeoutError):
-            await asyncio.wait_for(proc.wait(), timeout=3)
-        raise
 
-    stderr_text = stderr.decode("utf-8", errors="replace").strip()
-    if proc.returncode != 0:
-        raise ActionError(f"action_worker exit {proc.returncode}: {stderr_text[:500]}")
+    stderr_text = process_result.stderr.decode("utf-8", errors="replace").strip()
+    if process_result.returncode != 0:
+        raise ActionError(f"action_worker exit {process_result.returncode}: {stderr_text[:500]}")
 
     try:
-        result = json.loads(stdout.decode("utf-8", errors="replace"))
+        result = json.loads(process_result.stdout.decode("utf-8", errors="replace"))
     except json.JSONDecodeError as exc:
         raise ActionError("action_worker returned invalid JSON") from exc
 

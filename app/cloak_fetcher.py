@@ -11,29 +11,10 @@ cancellation reliably kills the underlying Chrome process group.
 
 from __future__ import annotations
 
-import asyncio
-import contextlib
 import json
-import logging
 import os
-import signal
-import sys
 
-logger = logging.getLogger(__name__)
-
-
-def _killpg(pid: int) -> None:
-    """SIGKILL the process group for pid. Safe if the group is already gone."""
-    try:
-        pgid = os.getpgid(pid)
-    except ProcessLookupError:
-        return
-    try:
-        os.killpg(pgid, signal.SIGKILL)
-    except ProcessLookupError:
-        pass
-    except PermissionError as exc:
-        logger.warning("killpg(%s) denied: %s", pgid, exc)
+from app.worker_process import run_worker_process
 
 
 async def fetch_with_cloak(
@@ -48,39 +29,23 @@ async def fetch_with_cloak(
     Returns `(html, http_metadata)`. `http_metadata` carries
     `{"status": int|None, "redirect_history": None}`.
     """
-    cmd = [sys.executable, "-m", "app.cloak_worker", url]
+    args = [url]
     if scroll_full:
-        cmd.append("--scroll-full")
+        args.append("--scroll-full")
     if wait_until:
-        cmd.extend(["--wait-until", wait_until])
+        args.extend(["--wait-until", wait_until])
     if wait_for_selector:
-        cmd.extend(["--wait-for-selector", wait_for_selector])
+        args.extend(["--wait-for-selector", wait_for_selector])
 
-    # start_new_session=True puts the child in its own process group so
-    # a single killpg reaches every Chromium helper it spawned.
     env = os.environ.copy()
     if proxy_url is not None:
         env["PROXY_URL"] = proxy_url
 
-    proc = await asyncio.create_subprocess_exec(
-        *cmd,
-        stdout=asyncio.subprocess.PIPE,
-        stderr=asyncio.subprocess.PIPE,
-        env=env,
-        start_new_session=True,
-    )
+    result = await run_worker_process("app.cloak_worker", *args, env=env)
 
-    try:
-        stdout, stderr = await proc.communicate()
-    except asyncio.CancelledError:
-        _killpg(proc.pid)
-        with contextlib.suppress(TimeoutError):
-            await asyncio.wait_for(proc.wait(), timeout=3)
-        raise
+    if result.returncode != 0:
+        err = result.stderr.decode("utf-8", errors="replace").strip()
+        raise RuntimeError(f"cloak_worker exit {result.returncode}: {err[:500]}")
 
-    if proc.returncode != 0:
-        err = stderr.decode("utf-8", errors="replace").strip()
-        raise RuntimeError(f"cloak_worker exit {proc.returncode}: {err[:500]}")
-
-    result = json.loads(stdout.decode("utf-8", errors="replace"))
-    return result["html"], result.get("http_metadata") or {}
+    payload = json.loads(result.stdout.decode("utf-8", errors="replace"))
+    return payload["html"], payload.get("http_metadata") or {}

@@ -4,6 +4,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
+    init: true
     user: "${APP_UID:-1002}:${APP_GID:-1002}"
     expose:
       - "10700"

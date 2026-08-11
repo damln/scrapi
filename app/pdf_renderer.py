@@ -2,12 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import base64
-import contextlib
 import json
-import logging
-import os
-import signal
-import sys
 from dataclasses import dataclass
 from typing import Literal
 from urllib.parse import urlparse
@@ -15,8 +10,7 @@ from urllib.parse import urlparse
 from pydantic import BaseModel, Field, field_validator, model_validator
 
 from app.config import PDF_MAX_CONCURRENT, PDF_RENDER_TIMEOUT_MS
-
-logger = logging.getLogger(__name__)
+from app.worker_process import run_worker_process
 
 HeaderScope = Literal["same_origin", "all"]
 MediaMode = Literal["screen", "print"]
@@ -338,19 +332,6 @@ def _validate_pdf_dimension(value: str | float) -> str | float:
     return stripped
 
 
-def _killpg(pid: int) -> None:
-    try:
-        pgid = os.getpgid(pid)
-    except ProcessLookupError:
-        return
-    try:
-        os.killpg(pgid, signal.SIGKILL)
-    except ProcessLookupError:
-        pass
-    except PermissionError as exc:
-        logger.warning("killpg(%s) denied: %s", pgid, exc)
-
-
 async def render_pdf(request: PdfRenderRequest) -> PdfRenderResult:
     return await render_export(request)
 
@@ -365,38 +346,21 @@ async def _render_pdf_in_subprocess(request: PdfRenderRequest) -> PdfRenderResul
     payload = request.model_dump(mode="json")
     timeout_ms = max(PDF_RENDER_TIMEOUT_MS, request.wait.timeout_ms + 15_000)
 
-    proc = await asyncio.create_subprocess_exec(
-        sys.executable,
-        "-m",
-        "app.pdf_worker",
-        stdin=asyncio.subprocess.PIPE,
-        stdout=asyncio.subprocess.PIPE,
-        stderr=asyncio.subprocess.PIPE,
-        start_new_session=True,
-    )
-
     try:
-        stdout, stderr = await asyncio.wait_for(
-            proc.communicate(json.dumps(payload).encode("utf-8")),
-            timeout=timeout_ms / 1000,
+        process_result = await run_worker_process(
+            "app.pdf_worker",
+            input_bytes=json.dumps(payload).encode("utf-8"),
+            timeout_seconds=timeout_ms / 1000,
         )
     except TimeoutError as exc:
-        _killpg(proc.pid)
-        with contextlib.suppress(TimeoutError):
-            await asyncio.wait_for(proc.wait(), timeout=3)
         raise PdfRenderError(f"Export render timeout ({timeout_ms}ms)", status_code=504) from exc
-    except asyncio.CancelledError:
-        _killpg(proc.pid)
-        with contextlib.suppress(TimeoutError):
-            await asyncio.wait_for(proc.wait(), timeout=3)
-        raise
 
-    stderr_text = stderr.decode("utf-8", errors="replace").strip()
-    if proc.returncode != 0:
-        raise PdfRenderError(f"pdf_worker exit {proc.returncode}: {stderr_text[:500]}")
+    stderr_text = process_result.stderr.decode("utf-8", errors="replace").strip()
+    if process_result.returncode != 0:
+        raise PdfRenderError(f"pdf_worker exit {process_result.returncode}: {stderr_text[:500]}")
 
     try:
-        result = json.loads(stdout.decode("utf-8", errors="replace"))
+        result = json.loads(process_result.stdout.decode("utf-8", errors="replace"))
     except json.JSONDecodeError as exc:
         raise PdfRenderError("pdf_worker returned invalid JSON") from exc
 
