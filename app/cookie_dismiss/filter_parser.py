@@ -49,34 +49,65 @@ def build_css(selectors: list[str]) -> str:
     return "\n".join(chunks)
 
 
-def build_observer_js(selectors: list[str]) -> str:
-    """Generate a MutationObserver JS script that hides/removes cookie banners dynamically."""
-    selectors_json = _selectors_to_json(selectors)
+def build_observer_js(_selectors: list[str]) -> str:
+    """Generate an incremental observer that reuses selectors from the injected CSS."""
+    return """(() => {
+  const SIGNATURE = '#-CookieConsentContainer';
+  const OVERLAYS = '.modal-backdrop, [class*="overlay"][class*="cookie"], '
+    + '[class*="overlay"][class*="consent"], [class*="overlay"][class*="gdpr"]';
+  let sheet = null;
+  let scheduled = false;
+  let pending = [];
 
-    return (
-        "(() => {\n"
-        f"  const SELECTORS = {selectors_json};\n"
-        "  const hide = () => {\n"
-        "    SELECTORS.forEach(sel => {\n"
-        "      try {\n"
-        "        document.querySelectorAll(sel).forEach(el => {\n"
-        "          el.style.setProperty('display', 'none', 'important');\n"
-        "        });\n"
-        "      } catch(e) {}\n"
-        "    });\n"
-        "    document.querySelectorAll(\n"
-        '      \'.modal-backdrop, [class*="overlay"][class*="cookie"], \'\n'
-        '      + \'[class*="overlay"][class*="consent"], [class*="overlay"][class*="gdpr"]\'\n'
-        "    ).forEach(el => el.remove());\n"
-        "    document.body.style.overflow = '';\n"
-        "    document.documentElement.style.overflow = '';\n"
-        "  };\n"
-        "  hide();\n"
-        "  if (document.body) {\n"
-        "    new MutationObserver(hide).observe(document.body, {childList: true, subtree: true});\n"
-        "  }\n"
-        "})();\n"
-    )
+  const findSheet = () => {
+    for (const candidate of document.styleSheets) {
+      try {
+        if (candidate.cssRules.length && candidate.cssRules[0].selectorText
+            && candidate.cssRules[0].selectorText.includes(SIGNATURE)) {
+          return candidate;
+        }
+      } catch (_) {}
+    }
+    return null;
+  };
+
+  const clean = roots => {
+    sheet ||= findSheet();
+    if (!sheet) return;
+    for (const root of roots) {
+      if (!(root instanceof Element)) continue;
+      for (const rule of sheet.cssRules) {
+        if (!rule.selectorText) continue;
+        try {
+          if (root.matches(rule.selectorText)) {
+            root.remove();
+            break;
+          }
+          root.querySelectorAll(rule.selectorText).forEach(element => element.remove());
+        } catch (_) {}
+      }
+    }
+    document.querySelectorAll(OVERLAYS).forEach(element => element.remove());
+    if (document.body) document.body.style.overflow = '';
+    document.documentElement.style.overflow = '';
+  };
+
+  const flush = () => {
+    const roots = pending;
+    pending = [];
+    scheduled = false;
+    clean(roots);
+  };
+
+  new MutationObserver(mutations => {
+    for (const mutation of mutations) pending.push(...mutation.addedNodes);
+    if (!scheduled && pending.length) {
+      scheduled = true;
+      setTimeout(flush, 50);
+    }
+  }).observe(document.documentElement, {childList: true, subtree: true});
+})();
+"""
 
 
 def _is_valid_selector(selector: str) -> bool:
@@ -89,9 +120,3 @@ def _is_valid_selector(selector: str) -> bool:
         return False
     # Skip selectors with :upward, :min-text-length, etc.
     return not re.search(r":(?:upward|min-text-length|watch-attr)\(", selector)
-
-
-def _selectors_to_json(selectors: list[str]) -> str:
-    import json
-
-    return json.dumps(selectors)
