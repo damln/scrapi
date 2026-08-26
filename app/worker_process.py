@@ -18,7 +18,7 @@ class WorkerProcessResult:
     returncode: int
 
 
-async def _terminate_process_group(process: asyncio.subprocess.Process, pgid: int) -> None:
+async def terminate_process_group(process: asyncio.subprocess.Process, pgid: int) -> None:
     try:
         os.killpg(pgid, signal.SIGKILL)
     except ProcessLookupError:
@@ -62,4 +62,4 @@ async def run_worker_process(
             raise RuntimeError(f"{module} exited without a return code")
         return WorkerProcessResult(stdout=stdout, stderr=stderr, returncode=process.returncode)
     finally:
-        await _terminate_process_group(process, pgid)
+        await terminate_process_group(process, pgid)

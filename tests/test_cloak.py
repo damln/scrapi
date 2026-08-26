@@ -6,12 +6,43 @@ to assert dispatch / forwarding / fallthrough. End-to-end browser behavior
 the prod deployment.
 """
 
+import json
 import os
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, Mock, patch
 
+from app.cloak_worker import fetch, serve
 from tests.conftest import AUTH_HEADER
 
 SIMPLE_HTML = "<html><head><title>Test</title></head><body><p>Hello cloak</p>" + "x" * 260 + "</body></html>"
+
+
+def test_worker_reuses_browser_with_fresh_context_per_url():
+    first_context = Mock()
+    second_context = Mock()
+    first_page = first_context.new_page.return_value
+    second_page = second_context.new_page.return_value
+    first_page.goto.return_value = Mock(status=200)
+    second_page.goto.return_value = Mock(status=200)
+    first_page.content.return_value = SIMPLE_HTML
+    second_page.content.return_value = SIMPLE_HTML
+    browser = Mock()
+    browser.new_context.side_effect = [first_context, second_context]
+
+    with patch("app.cloak_worker.dismiss_cookies"):
+        fetch(browser, "https://one.example", False, "load", None)
+        fetch(browser, "https://two.example", False, "load", None)
+
+    assert browser.new_context.call_count == 2
+    first_context.close.assert_called_once()
+    second_context.close.assert_called_once()
+    browser.close.assert_not_called()
+
+
+def test_worker_server_reports_browser_launch_failure(capsys):
+    with patch("app.cloak_worker._launch_browser", side_effect=RuntimeError("cannot launch browser")):
+        assert serve() == 1
+
+    assert json.loads(capsys.readouterr().out) == {"ok": False, "error": "cannot launch browser"}
 
 
 def test_cloak_is_first_in_default_provider_order():

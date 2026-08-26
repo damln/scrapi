@@ -9,7 +9,7 @@ from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, PlainTex
 from fastapi.staticfiles import StaticFiles
 from starlette.background import BackgroundTask
 
-from app import asset_fetcher, config, firecrawl_fetcher, twitter_fetcher, youtube_fetcher
+from app import asset_fetcher, cloak_fetcher, config, firecrawl_fetcher, twitter_fetcher, youtube_fetcher
 from app.action_runner import ActionError, ActionRequest, run_action
 from app.agent_docs import render_agent_markdown
 from app.auth import verify_token
@@ -33,7 +33,9 @@ async def lifespan(app: FastAPI):
     firecrawl_fetcher.init_client()
     twitter_fetcher.init_client()
     youtube_fetcher.init_client()
+    cloak_fetcher.init_browser_pool()
     yield
+    await cloak_fetcher.close_browser_pool()
     await asset_fetcher.close_client()
     await firecrawl_fetcher.close_client()
     await twitter_fetcher.close_client()

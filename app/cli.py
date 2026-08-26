@@ -34,7 +34,7 @@ from typing import Any
 
 from pydantic import ValidationError
 
-from app import asset_fetcher, firecrawl_fetcher, twitter_fetcher, youtube_fetcher
+from app import asset_fetcher, cloak_fetcher, firecrawl_fetcher, twitter_fetcher, youtube_fetcher
 from app.action_runner import ActionError, ActionRequest, run_action
 from app.fetcher import DEFAULT_PROVIDER_ORDER, fetch_urls
 from app.pdf_renderer import PdfRenderError, PdfRenderRequest, render_export
@@ -96,9 +96,11 @@ async def _http_clients() -> AsyncIterator[None]:
     firecrawl_fetcher.init_client()
     twitter_fetcher.init_client()
     youtube_fetcher.init_client()
+    cloak_fetcher.init_browser_pool()
     try:
         yield
     finally:
+        await cloak_fetcher.close_browser_pool()
         await asset_fetcher.close_client()
         await firecrawl_fetcher.close_client()
         await twitter_fetcher.close_client()

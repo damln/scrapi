@@ -5,16 +5,37 @@ CloakBrowser is a stealth Chromium with C++-level fingerprint patches
 SOCKS5 support.
 PyPI: `cloakbrowser`. Docs: https://github.com/CloakHQ/CloakBrowser
 
-Runs as a killable subprocess via `app.cloak_worker` so asyncio
-cancellation reliably kills the underlying Chrome process group.
+Runs through a bounded pool of persistent, killable `app.cloak_worker`
+subprocesses. Chromium is reused, while every URL gets a fresh context.
 """
 
 from __future__ import annotations
 
-import json
-import os
+from app.cloak_pool import CloakBrowserPool
+from app.config import BROWSER_MAX_CONCURRENT, BROWSER_MAX_REQUESTS_PER_WORKER
 
-from app.worker_process import run_worker_process
+_browser_pool: CloakBrowserPool | None = None
+
+
+def init_browser_pool() -> None:
+    global _browser_pool
+    if _browser_pool is None:
+        _browser_pool = CloakBrowserPool(BROWSER_MAX_CONCURRENT, BROWSER_MAX_REQUESTS_PER_WORKER)
+
+
+async def close_browser_pool() -> None:
+    global _browser_pool
+    pool = _browser_pool
+    _browser_pool = None
+    if pool is not None:
+        await pool.close()
+
+
+def _get_browser_pool() -> CloakBrowserPool:
+    init_browser_pool()
+    if _browser_pool is None:
+        raise RuntimeError("cloak browser pool failed to initialize")
+    return _browser_pool
 
 
 async def fetch_with_cloak(
@@ -29,23 +50,11 @@ async def fetch_with_cloak(
     Returns `(html, http_metadata)`. `http_metadata` carries
     `{"status": int|None, "redirect_history": None}`.
     """
-    args = [url]
-    if scroll_full:
-        args.append("--scroll-full")
-    if wait_until:
-        args.extend(["--wait-until", wait_until])
-    if wait_for_selector:
-        args.extend(["--wait-for-selector", wait_for_selector])
-
-    env = os.environ.copy()
-    if proxy_url is not None:
-        env["PROXY_URL"] = proxy_url
-
-    result = await run_worker_process("app.cloak_worker", *args, env=env)
-
-    if result.returncode != 0:
-        err = result.stderr.decode("utf-8", errors="replace").strip()
-        raise RuntimeError(f"cloak_worker exit {result.returncode}: {err[:500]}")
-
-    payload = json.loads(result.stdout.decode("utf-8", errors="replace"))
-    return payload["html"], payload.get("http_metadata") or {}
+    payload = {
+        "url": url,
+        "scroll_full": scroll_full,
+        "wait_until": wait_until,
+        "wait_for_selector": wait_for_selector,
+    }
+    result = await _get_browser_pool().execute(payload, proxy_url or "")
+    return result["html"], result.get("http_metadata") or {}

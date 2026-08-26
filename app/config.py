@@ -11,6 +11,7 @@ FETCH_TIMEOUT_MS = int(os.environ.get("SCRAPI_FETCH_TIMEOUT_MS", "30000"))
 # Cap on concurrent browser-based provider fetches (cloak Chromium
 # instances). Each one is ~500 MB RAM; 2 is the right cap for this host.
 BROWSER_MAX_CONCURRENT = int(os.environ.get("BROWSER_MAX_CONCURRENT", "2"))
+BROWSER_MAX_REQUESTS_PER_WORKER = int(os.environ.get("BROWSER_MAX_REQUESTS_PER_WORKER", "100"))
 
 # Hard asyncio timeout per provider call (seconds). Safety net that kills a
 # provider attempt if its browser or HTTP call hangs past its own timeout.
