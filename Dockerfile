@@ -51,4 +51,4 @@ COPY . .
 
 RUN mkdir -p /tmp/.cache && chown -R 1002:1002 /tmp/.cache
 
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "10700", "--workers", "2"]
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "10700"]

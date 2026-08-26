@@ -9,6 +9,7 @@ from urllib.parse import urlparse
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
+from app.browser_budget import browser_slot
 from app.config import PDF_MAX_CONCURRENT, PDF_RENDER_TIMEOUT_MS
 from app.worker_process import run_worker_process
 
@@ -339,7 +340,8 @@ async def render_pdf(request: PdfRenderRequest) -> PdfRenderResult:
 async def render_export(request: PdfRenderRequest) -> PdfRenderResult:
     sem = _get_pdf_semaphore()
     async with sem:
-        return await _render_pdf_in_subprocess(request)
+        async with browser_slot():
+            return await _render_pdf_in_subprocess(request)
 
 
 async def _render_pdf_in_subprocess(request: PdfRenderRequest) -> PdfRenderResult:

@@ -17,6 +17,7 @@ from urllib.parse import urlparse
 
 from pydantic import BaseModel, Field, field_validator
 
+from app.browser_budget import browser_slot
 from app.worker_process import run_worker_process
 
 CookieMode = Literal["dismiss", "keep"]
@@ -136,11 +137,12 @@ async def capture_browser(request: BrowserCaptureRequest) -> dict[str, Any]:
 
     for attempt in range(1, attempts + 1):
         try:
-            process_result = await run_worker_process(
-                "app.browser_capture_worker",
-                input_bytes=payload,
-                timeout_seconds=request.hard_timeout_seconds,
-            )
+            async with browser_slot():
+                process_result = await run_worker_process(
+                    "app.browser_capture_worker",
+                    input_bytes=payload,
+                    timeout_seconds=request.hard_timeout_seconds,
+                )
         except TimeoutError:
             last_error = f"attempt {attempt} exceeded {request.hard_timeout_seconds}s"
             continue

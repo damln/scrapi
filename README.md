@@ -85,7 +85,8 @@ All configuration is via environment variables — see `.env.example`. Highlight
 | `SCRAPI_API_TOKEN` | — | Bearer token for non-local HTTP API calls (required to serve; not needed for local calls or the CLI) |
 | `PROXY_URL` | empty (direct) | Optional proxy for browser fetches, e.g. `socks5://host:1080` |
 | `FIRECRAWL_API_KEY` | empty (disabled) | Enables the `firecrawl` fallback provider |
-| `BROWSER_MAX_CONCURRENT` | `2` | Cap on concurrent Chromium instances (~500 MB RAM each) |
+| `BROWSER_MAX_CONCURRENT` | `2` | Per-container budget shared by content, capture, export, and actions. Content reuses this many persistent Chromium workers (~500 MB RAM each under load). |
+| `BROWSER_MAX_REQUESTS_PER_WORKER` | `100` | Recycle a persistent content browser after this many pages to bound long-lived Chromium growth. |
 
 ### Proxy profiles
 

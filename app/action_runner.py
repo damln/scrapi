@@ -28,6 +28,7 @@ from urllib.parse import urlparse
 from pydantic import BaseModel, Field, model_validator
 
 from app import asset_fetcher
+from app.browser_budget import browser_slot
 from app.config import ACTION_MAX_CONCURRENT, ACTION_RENDER_TIMEOUT_MS
 from app.worker_process import run_worker_process
 
@@ -212,7 +213,8 @@ async def run_action(request: ActionRequest) -> ActionResult:
         try:
             media_paths = await _resolve_media(request.media, tmp_dir)
             payload = _build_worker_payload(request, media_paths)
-            return await _run_in_subprocess(payload, request.timeout_ms)
+            async with browser_slot():
+                return await _run_in_subprocess(payload, request.timeout_ms)
         finally:
             await asyncio.to_thread(shutil.rmtree, tmp_dir, ignore_errors=True)
 

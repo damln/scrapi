@@ -2,9 +2,9 @@ import asyncio
 import logging
 from typing import Any
 
+from app.browser_budget import browser_slot
 from app.cloak_fetcher import fetch_with_cloak
 from app.config import (
-    BROWSER_MAX_CONCURRENT,
     FETCH_SINGLE_URL_TIMEOUT_S,
     FIRECRAWL_API_KEY,
     PROVIDER_HARD_TIMEOUT_S,
@@ -26,19 +26,6 @@ from app.url_cleaner import clean_url
 from app.youtube_fetcher import fetch_youtube, is_youtube_url
 
 logger = logging.getLogger(__name__)
-
-_browser_semaphore: asyncio.Semaphore | None = None
-
-
-def _get_browser_semaphore() -> asyncio.Semaphore:
-    """Cap on concurrent Chromium instances (cloak provider).
-
-    Each instance is ~500 MB; running too many in parallel OOMs the host.
-    """
-    global _browser_semaphore
-    if _browser_semaphore is None:
-        _browser_semaphore = asyncio.Semaphore(BROWSER_MAX_CONCURRENT)
-    return _browser_semaphore
 
 
 def _sanitize_utf8(html: str) -> str:
@@ -97,8 +84,7 @@ async def _try_provider(
 
         if provider == "cloak":
             proxy_url = resolve_proxy_profile(proxy_profile)
-            sem = _get_browser_semaphore()
-            async with sem:
+            async with browser_slot():
                 html, http_metadata = await asyncio.wait_for(
                     fetch_with_cloak(
                         url,
