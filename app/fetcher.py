@@ -179,7 +179,7 @@ async def _fetch_single_url_inner(
 ) -> dict:
     """Inner fetch logic, separated so fetch_single_url can wrap it with a hard timeout."""
     # Special-case Twitter and YouTube — use dedicated API fetchers
-    special_result = await _try_special_fetcher(url, raw_url)
+    special_result = await _try_special_fetcher(url, raw_url, proxy_profile)
     if special_result is not None:
         return special_result
 
@@ -211,7 +211,7 @@ async def _fetch_single_url_inner(
     }
 
 
-async def _try_special_fetcher(url: str, raw_url: str) -> dict | None:
+async def _try_special_fetcher(url: str, raw_url: str, proxy_profile: str) -> dict | None:
     """Try Twitter or YouTube fetchers for known URL patterns.
 
     Returns a success dict, a not-found dict (with http.status=404), or None to fall through.
@@ -220,7 +220,7 @@ async def _try_special_fetcher(url: str, raw_url: str) -> dict | None:
     if is_twitter_url(url):
         result = await fetch_twitter(url)
     elif is_youtube_url(url):
-        result = await fetch_youtube(url)
+        result = await fetch_youtube(url, resolve_proxy_profile(proxy_profile))
 
     if result is None:
         return None
@@ -241,7 +241,7 @@ async def _try_special_fetcher(url: str, raw_url: str) -> dict | None:
     html = result["html"]
     head_meta = extract_head_meta(html)
     markdown = html_to_markdown(html)
-    return _success(
+    response = _success(
         url,
         raw_url,
         html,
@@ -251,6 +251,10 @@ async def _try_special_fetcher(url: str, raw_url: str) -> dict | None:
         markdown,
         twitter_source=result.get("twitter_source"),
     )
+    if result["provider"] == "youtube":
+        for key in ("video_id", "transcript", "transcripts", "transcript_error"):
+            response[key] = result.get(key)
+    return response
 
 
 def _success(

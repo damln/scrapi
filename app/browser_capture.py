@@ -22,6 +22,7 @@ from app.worker_process import run_worker_process
 
 CookieMode = Literal["dismiss", "keep"]
 ScreenshotMode = Literal["full", "viewport", "off"]
+ScreenshotFormat = Literal["png", "jpeg"]
 ResourceMode = Literal["none", "media", "assets", "all"]
 
 
@@ -51,6 +52,9 @@ class BrowserCaptureRequest:
     scroll_full: bool = False
     max_scroll_steps: int = 60
     screenshot: ScreenshotMode = "full"
+    screenshot_format: ScreenshotFormat = "png"
+    screenshot_quality: int = 98
+    max_screenshot_height: int = 20_000
     html: bool = True
     har: bool = True
     video: bool = False
@@ -81,6 +85,9 @@ class BrowserCaptureApiRequest(BaseModel):
     scroll_full: bool = False
     max_scroll_steps: int = Field(60, ge=1, le=500)
     screenshot: ScreenshotMode = "full"
+    screenshot_format: ScreenshotFormat = "png"
+    screenshot_quality: int = Field(98, ge=0, le=100)
+    max_screenshot_height: int = Field(20_000, ge=240, le=50_000)
     html: bool = True
     har: bool = True
     video: bool = False

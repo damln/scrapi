@@ -13,6 +13,7 @@ from app.recipes import RECIPE_PARAM_MODELS
 ENDPOINT_NOTES = {
     "/api/v1/content": [
         "Use first for web page content. Read results[].markdown first; use results[].html for structured extraction.",
+        "YouTube results include the preferred English transcript plus every available native-language track.",
         f"Default provider_order is {','.join(DEFAULT_PROVIDER_ORDER)}. Omit provider_order on the first attempt.",
         "Cloak supports proxy_profile=current|direct|<env-defined-name>; never pass raw proxy URLs.",
     ],
@@ -25,6 +26,10 @@ ENDPOINT_NOTES = {
     "/api/v1/capture": [
         "Runs the Scrapi CloakBrowser stack and returns a ZIP containing result.json plus requested screenshot, WebM, HAR, rendered HTML, and resources.",
         "Cookie dismissal, ad blocking, retries, and hard process cleanup are enabled by default.",
+    ],
+    "/api/v1/screenshot": [
+        "Returns one JPEG directly, or a ZIP when viewport is repeated.",
+        "Use viewport=mobile or viewport=desktop presets, or WIDTHxHEIGHT. Full-page height and lazy scrolling are bounded.",
     ],
     "/api/v1/actions": [
         "Runs a stateless browser action. The caller supplies cookies/session on every request.",

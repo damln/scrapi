@@ -3,6 +3,7 @@ import shutil
 import tempfile
 from contextlib import asynccontextmanager, suppress
 from pathlib import Path
+from typing import Annotated
 
 from fastapi import Depends, FastAPI, Query
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, PlainTextResponse, Response
@@ -22,6 +23,7 @@ from app.browser_capture import (
 from app.fetcher import DEFAULT_PROVIDER_ORDER, fetch_urls
 from app.pdf_renderer import PdfRenderError, PdfRenderRequest, PdfRenderResult, render_export
 from app.proxy_profiles import ProxyProfileError, available_proxy_profiles, resolve_proxy_profile
+from app.screenshot import build_screenshot_archive, parse_viewports
 from app.status import get_status
 
 
@@ -265,6 +267,96 @@ async def capture_browser_endpoint(
         media_type="application/zip",
         filename="scrapi-capture.zip",
         headers=headers,
+        background=BackgroundTask(shutil.rmtree, root, True),
+    )
+
+
+@app.get("/api/v1/screenshot")
+async def screenshot_endpoint(
+    url: str = Query(..., description="Absolute HTTP(S) page URL"),
+    viewport: Annotated[
+        list[str] | None,
+        Query(description="Repeat desktop, mobile, or WIDTHxHEIGHT to capture multiple responsive sizes"),
+    ] = None,
+    full_page: bool = Query(True, description="Capture the full page instead of the visible viewport"),
+    quality: int = Query(98, ge=0, le=100, description="JPEG quality"),
+    max_page_height: int = Query(
+        20_000,
+        ge=240,
+        le=50_000,
+        description="Maximum full-page screenshot height in CSS pixels",
+    ),
+    scroll_full: bool = Query(False, description="Scroll before capture to load lazy or infinite content"),
+    max_scroll_steps: int = Query(60, ge=1, le=500, description="Maximum scroll steps before capture"),
+    wait_for_selector: str | None = Query(None, description="Wait for a CSS selector before capture"),
+    proxy_profile: str = Query("current", description="Named proxy profile"),
+    _token: str = Depends(verify_token),
+):
+    try:
+        url = BrowserCaptureApiRequest.absolute_http_url(url)
+    except ValueError as exc:
+        return JSONResponse(status_code=422, content={"status": "error", "error": str(exc)})
+
+    try:
+        viewports = parse_viewports(viewport)
+        proxy_url = resolve_proxy_profile(proxy_profile)
+    except (ValueError, ProxyProfileError) as exc:
+        return JSONResponse(status_code=400, content={"status": "error", "error": str(exc)})
+
+    root = Path(await asyncio.to_thread(tempfile.mkdtemp, prefix="scrapi-screenshot-api-"))
+    archive = root / "scrapi-screenshots.zip"
+    captures = []
+    try:
+        for width, height in viewports:
+            evidence = root / f"{width}x{height}"
+            request = BrowserCaptureApiRequest.model_validate(
+                {
+                    "url": url,
+                    "width": width,
+                    "height": height,
+                    "proxy_profile": proxy_profile,
+                    "wait_for_selector": (wait_for_selector or "").strip() or None,
+                    "scroll_full": scroll_full,
+                    "max_scroll_steps": max_scroll_steps,
+                    "screenshot": "full" if full_page else "viewport",
+                    "screenshot_format": "jpeg",
+                    "screenshot_quality": quality,
+                    "max_screenshot_height": max_page_height,
+                    "html": False,
+                    "har": False,
+                }
+            )
+            captures.append(await capture_browser(request.to_capture_request(str(evidence), proxy_url)))
+
+        if len(captures) == 1:
+            result = captures[0]
+            screenshot = Path(result["files"]["screenshot"])
+            headers = {
+                "X-Scrapi-Final-Url": result["url"],
+                "X-Scrapi-Http-Status": str(result.get("http_status") or ""),
+                "X-Scrapi-Screenshot-Capped": str(bool(result["screenshot"]["capped"])).lower(),
+            }
+            return FileResponse(
+                screenshot,
+                media_type="image/jpeg",
+                filename=f"screenshot-{viewports[0][0]}x{viewports[0][1]}.jpg",
+                content_disposition_type="inline",
+                headers=headers,
+                background=BackgroundTask(shutil.rmtree, root, True),
+            )
+
+        await asyncio.to_thread(build_screenshot_archive, captures, archive)
+    except BrowserCaptureError as exc:
+        await asyncio.to_thread(shutil.rmtree, root, True)
+        return JSONResponse(status_code=502, content={"status": "error", "error": str(exc)})
+    except Exception:
+        await asyncio.to_thread(shutil.rmtree, root, True)
+        raise
+
+    return FileResponse(
+        archive,
+        media_type="application/zip",
+        filename="scrapi-screenshots.zip",
         background=BackgroundTask(shutil.rmtree, root, True),
     )
 

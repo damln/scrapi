@@ -118,13 +118,54 @@ def _scroll_full(page: Any, max_steps: int) -> dict[str, Any]:
     }
 
 
+def _capture_screenshot(page: Any, req: dict[str, Any], path: Path, width: int, height: int) -> dict[str, Any]:
+    screenshot_format = req["screenshot_format"]
+    options: dict[str, Any] = {
+        "path": str(path),
+        "type": screenshot_format,
+        "animations": "disabled",
+        "caret": "hide",
+        "scale": "css",
+    }
+    if screenshot_format == "jpeg":
+        options["quality"] = int(req["screenshot_quality"])
+
+    page.evaluate("() => window.scrollTo(0, 0)")
+    page_height = int(
+        page.evaluate("() => Math.max(document.documentElement.scrollHeight, document.body.scrollHeight)")
+    )
+    if req["screenshot"] == "full":
+        capture_height = min(page_height, int(req["max_screenshot_height"]))
+        capped = page_height > capture_height
+        if capped:
+            options["clip"] = {"x": 0, "y": 0, "width": width, "height": capture_height}
+        else:
+            options["full_page"] = True
+    else:
+        capture_height = height
+        capped = False
+        options["full_page"] = False
+
+    page.screenshot(**options)
+    return {
+        "mode": req["screenshot"],
+        "format": screenshot_format,
+        "quality": int(req["screenshot_quality"]) if screenshot_format == "jpeg" else None,
+        "width": width,
+        "height": capture_height,
+        "page_height": page_height,
+        "capped": capped,
+    }
+
+
 def run(req: dict[str, Any]) -> dict[str, Any]:
     output = Path(req["output_dir"]).resolve()
     output.mkdir(parents=True, exist_ok=True)
     width, height = int(req["width"]), int(req["height"])
     har_path = output / "capture.har"
     html_path = output / "page.html"
-    screenshot_path = output / "screenshot.png"
+    screenshot_extension = "jpg" if req["screenshot_format"] == "jpeg" else "png"
+    screenshot_path = output / f"screenshot.{screenshot_extension}"
     video_dir = output / ".video"
     video_path = output / "capture.webm"
     resources_dir = output / "resources"
@@ -183,8 +224,9 @@ def run(req: dict[str, Any]) -> dict[str, Any]:
         scroll = _scroll_full(page, req["max_scroll_steps"]) if req["scroll_full"] else None
         if req["html"]:
             html_path.write_text(page.content())
+        screenshot = None
         if req["screenshot"] != "off":
-            page.screenshot(path=str(screenshot_path), full_page=req["screenshot"] == "full")
+            screenshot = _capture_screenshot(page, req, screenshot_path, width, height)
 
         result = {
             "status": "success",
@@ -195,6 +237,7 @@ def run(req: dict[str, Any]) -> dict[str, Any]:
             "networkidle": networkidle,
             "cookie_banner": req["cookie_mode"],
             "scroll": scroll,
+            "screenshot": screenshot,
             "elapsed_seconds": round(time.monotonic() - started, 3),
         }
         if req["video"] and page.video:

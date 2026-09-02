@@ -19,6 +19,27 @@ curl -H "Authorization: Bearer dev-token-change-me" \
   "http://localhost:10700/api/v1/content?urls=https://example.com"
 ```
 
+YouTube content responses include all available native-language transcript tracks, with English selected first when
+available. The primary transcript is also included in the returned HTML and markdown with timestamps.
+
+Capture one JPEG screenshot, or repeat `viewport` to receive a ZIP with several responsive sizes:
+
+```sh
+curl -sS -G http://localhost:10700/api/v1/screenshot \
+  -H "Authorization: Bearer dev-token-change-me" \
+  --data-urlencode "url=https://example.com" \
+  --data-urlencode "viewport=mobile" \
+  --data-urlencode "viewport=desktop" \
+  --data-urlencode "quality=98" \
+  --data-urlencode "full_page=true" \
+  --data-urlencode "max_page_height=20000" \
+  -o screenshots.zip
+```
+
+`viewport` accepts `mobile` (`390x844`), `desktop` (`1440x1000`), or a custom `WIDTHxHEIGHT`, and can be repeated up
+to five times. `scroll_full=true` triggers lazy content before capture; `max_scroll_steps` bounds infinite scrolling.
+Full-page JPEG height is independently capped by `max_page_height`.
+
 Capture browser evidence as a portable ZIP:
 
 ```sh

@@ -55,6 +55,15 @@ def curl_examples() -> dict[str, list[str]]:
             f'  --data-urlencode "url={EXAMPLE_ASSET_URL}" \\',
             '  --data-urlencode "output_format=WEBP,85"',
         ],
+        "GET /api/v1/screenshot": [
+            'curl -sS -G "$SCRAPI_BASE_URL/api/v1/screenshot" \\',
+            '  -H "Authorization: Bearer $SCRAPI_API_TOKEN" \\',
+            f'  --data-urlencode "url={EXAMPLE_PAGE_URL}" \\',
+            '  --data-urlencode "viewport=mobile" \\',
+            '  --data-urlencode "viewport=desktop" \\',
+            '  --data-urlencode "quality=98" \\',
+            "  -o screenshots.zip",
+        ],
         "POST /api/v1/export": [
             'curl -sS -X POST "$SCRAPI_BASE_URL/api/v1/export" \\',
             '  -H "Authorization: Bearer $SCRAPI_API_TOKEN" \\',
@@ -116,6 +125,12 @@ def response_examples() -> dict[str, object]:
             "height": 1,
             "data": base64.b64encode(b"png bytes").decode("ascii"),
             "http": {"status": 200, "redirect_history": None},
+        },
+        "GET /api/v1/screenshot": {
+            "body": "<jpeg, or zip when viewport is repeated>",
+            "headers": {
+                "content-type": "image/jpeg | application/zip",
+            },
         },
         "POST /api/v1/export": {
             "body": "<binary>",

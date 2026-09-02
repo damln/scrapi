@@ -1,6 +1,9 @@
+import pytest
 import respx
 from httpx import Response
 
+from app import youtube_fetcher
+from app.youtube_fetcher import extract_video_id
 from tests.conftest import AUTH_HEADER
 
 OEMBED_RESPONSE = {
@@ -9,6 +12,40 @@ OEMBED_RESPONSE = {
     "thumbnail_url": "https://i.ytimg.com/vi/dQw4w9WgXcQ/hqdefault.jpg",
     "html": '<iframe width="480" height="270" src="https://www.youtube.com/embed/dQw4w9WgXcQ"></iframe>',
 }
+
+TRANSCRIPT_RESPONSE = {
+    "available": [
+        {"language": "English", "language_code": "en", "is_generated": False, "is_translatable": True},
+        {"language": "French", "language_code": "fr", "is_generated": True, "is_translatable": True},
+    ],
+    "tracks": [
+        {
+            "language": "English",
+            "language_code": "en",
+            "is_generated": False,
+            "is_translatable": True,
+            "text": "Hello & welcome\nFull transcript",
+            "segments": [
+                {"text": "Hello & welcome", "start": 0.0, "duration": 1.5},
+                {"text": "Full transcript", "start": 61.0, "duration": 2.0},
+            ],
+        },
+        {
+            "language": "French",
+            "language_code": "fr",
+            "is_generated": True,
+            "is_translatable": True,
+            "text": "Bonjour et bienvenue",
+            "segments": [{"text": "Bonjour et bienvenue", "start": 0.0, "duration": 1.5}],
+        },
+    ],
+    "errors": [],
+}
+
+
+@pytest.fixture(autouse=True)
+def _mock_youtube_transcripts(monkeypatch):
+    monkeypatch.setattr(youtube_fetcher, "_fetch_transcripts", lambda _video_id, _proxy_url: TRANSCRIPT_RESPONSE)
 
 
 @respx.mock
@@ -74,6 +111,12 @@ def test_youtube_success(client):
     assert "Never Gonna Give You Up" in result["html"]
     assert "Rick Astley" in result["html"]
     assert "markdown" in result
+    assert result["video_id"] == "dQw4w9WgXcQ"
+    assert result["transcript"]["language_code"] == "en"
+    assert result["transcript"]["text"] == "Hello & welcome\nFull transcript"
+    assert [track["language_code"] for track in result["transcripts"]["tracks"]] == ["en", "fr"]
+    assert "[01:01] Full transcript" in result["markdown"]
+    assert "Hello &amp; welcome" in result["html"]
 
 
 @respx.mock
@@ -155,3 +198,38 @@ def test_youtube_title_with_no_author(client):
 
     meta = resp.json()["results"][0]["head_meta"]
     assert meta["title"] == "Never Gonna Give You Up"
+
+
+@pytest.mark.parametrize(
+    ("url", "expected"),
+    [
+        ("https://www.youtube.com/watch?v=dQw4w9WgXcQ", "dQw4w9WgXcQ"),
+        ("https://youtu.be/dQw4w9WgXcQ?t=4", "dQw4w9WgXcQ"),
+        ("https://www.youtube.com/shorts/dQw4w9WgXcQ", "dQw4w9WgXcQ"),
+        ("https://www.youtube.com/embed/dQw4w9WgXcQ", "dQw4w9WgXcQ"),
+        ("https://www.youtube.com/live/dQw4w9WgXcQ", "dQw4w9WgXcQ"),
+    ],
+)
+def test_extract_video_id(url, expected):
+    assert extract_video_id(url) == expected
+
+
+@respx.mock
+def test_youtube_without_captions_keeps_metadata(monkeypatch, client):
+    monkeypatch.setattr(
+        youtube_fetcher,
+        "_fetch_transcripts",
+        lambda _video_id, _proxy_url: {"available": [], "tracks": [], "errors": []},
+    )
+    respx.get("https://www.youtube.com/oembed").mock(return_value=Response(200, json=OEMBED_RESPONSE))
+
+    resp = client.get(
+        "/api/v1/content",
+        params={"urls": "https://www.youtube.com/watch?v=dQw4w9WgXcQ"},
+        headers=AUTH_HEADER,
+    )
+
+    result = resp.json()["results"][0]
+    assert result["status"] == "success"
+    assert result["transcript"] is None
+    assert result["transcript_error"] == "TranscriptsDisabledOrUnavailable"

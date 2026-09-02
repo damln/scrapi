@@ -44,6 +44,9 @@ def add_capture_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--scroll-full", action="store_true")
     parser.add_argument("--max-scroll-steps", type=int, default=60)
     parser.add_argument("--screenshot", choices=("full", "viewport", "off"), default="full")
+    parser.add_argument("--screenshot-format", choices=("png", "jpeg"), default="png")
+    parser.add_argument("--screenshot-quality", type=int, choices=range(101), default=98, metavar="0-100")
+    parser.add_argument("--max-screenshot-height", type=int, default=20_000, metavar="PIXELS")
     parser.add_argument("--video", action="store_true")
     parser.add_argument("--no-html", action="store_true")
     parser.add_argument("--no-har", action="store_true")
@@ -80,6 +83,9 @@ async def run_capture(args: argparse.Namespace) -> int:
         scroll_full=args.scroll_full,
         max_scroll_steps=args.max_scroll_steps,
         screenshot=args.screenshot,
+        screenshot_format=args.screenshot_format,
+        screenshot_quality=args.screenshot_quality,
+        max_screenshot_height=args.max_screenshot_height,
         html=not args.no_html,
         har=not args.no_har,
         video=args.video,

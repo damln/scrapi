@@ -5,7 +5,7 @@ from pathlib import Path
 import pytest
 
 from app.browser_capture import BrowserCaptureApiRequest, BrowserCaptureRequest, build_capture_archive
-from app.browser_capture_worker import RESOURCE_TYPES, ResourceCollector, _safe_name
+from app.browser_capture_worker import RESOURCE_TYPES, ResourceCollector, _capture_screenshot, _safe_name
 from app.capture_cli import build_parser
 
 
@@ -14,6 +14,9 @@ def test_capture_cli_exposes_evidence_and_runtime_controls():
     for option in (
         "--video",
         "--screenshot",
+        "--screenshot-format",
+        "--screenshot-quality",
+        "--max-screenshot-height",
         "--resources",
         "--scroll-full",
         "--keep-cookie-banners",
@@ -30,6 +33,8 @@ def test_capture_request_defaults_to_scrapi_protections():
     assert request.adblock is True
     assert request.humanize is True
     assert request.retries == 2
+    assert request.screenshot_format == "png"
+    assert request.max_screenshot_height == 20_000
 
 
 def test_api_request_builds_internal_request_without_exposing_output_path(tmp_path: Path):
@@ -59,6 +64,32 @@ def test_resource_collector_writes_manifest_for_empty_capture(tmp_path: Path):
     manifest = collector.write_manifest()
     assert manifest is not None
     assert Path(manifest).is_file()
+
+
+def test_jpeg_full_page_screenshot_is_capped(tmp_path: Path):
+    class FakePage:
+        screenshot_options = None
+
+        def evaluate(self, script):
+            return None if "scrollTo" in script else 30_000
+
+        def screenshot(self, **options):
+            self.screenshot_options = options
+
+    page = FakePage()
+    request = {
+        "screenshot_format": "jpeg",
+        "screenshot_quality": 98,
+        "screenshot": "full",
+        "max_screenshot_height": 20_000,
+    }
+
+    metadata = _capture_screenshot(page, request, tmp_path / "screenshot.jpg", 1440, 1000)
+
+    assert metadata["capped"] is True
+    assert metadata["height"] == 20_000
+    assert page.screenshot_options["quality"] == 98
+    assert page.screenshot_options["clip"] == {"x": 0, "y": 0, "width": 1440, "height": 20_000}
 
 
 def test_capture_archive_rewrites_artifact_paths(tmp_path: Path):
