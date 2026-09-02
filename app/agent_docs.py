@@ -30,6 +30,7 @@ ENDPOINT_NOTES = {
     "/api/v1/screenshot": [
         "Returns one JPEG directly, or a ZIP when viewport is repeated.",
         "Use viewport=mobile or viewport=desktop presets, or WIDTHxHEIGHT. Full-page height and lazy scrolling are bounded.",
+        "Use render_scale=2 for Retina-density rendering downsampled to the requested output dimensions.",
     ],
     "/api/v1/actions": [
         "Runs a stateless browser action. The caller supplies cookies/session on every request.",

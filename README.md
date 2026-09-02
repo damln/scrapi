@@ -30,7 +30,8 @@ curl -sS -G http://localhost:10700/api/v1/screenshot \
   --data-urlencode "url=https://example.com" \
   --data-urlencode "viewport=mobile" \
   --data-urlencode "viewport=desktop" \
-  --data-urlencode "quality=98" \
+  --data-urlencode "quality=99" \
+  --data-urlencode "render_scale=2" \
   --data-urlencode "full_page=true" \
   --data-urlencode "max_page_height=20000" \
   -o screenshots.zip
@@ -39,6 +40,7 @@ curl -sS -G http://localhost:10700/api/v1/screenshot \
 `viewport` accepts `mobile` (`390x844`), `desktop` (`1440x1000`), or a custom `WIDTHxHEIGHT`, and can be repeated up
 to five times. `scroll_full=true` triggers lazy content before capture; `max_scroll_steps` bounds infinite scrolling.
 Full-page JPEG height is independently capped by `max_page_height`.
+`render_scale=2` renders at Retina density and downsamples once with Lanczos to keep the requested output dimensions.
 
 Capture browser evidence as a portable ZIP:
 

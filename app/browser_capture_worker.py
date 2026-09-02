@@ -13,6 +13,7 @@ from typing import Any
 from urllib.parse import unquote, urlparse
 
 from cloakbrowser import launch
+from PIL import Image
 from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
 
 from app.ad_blocker import block_ads
@@ -120,15 +121,11 @@ def _scroll_full(page: Any, max_steps: int) -> dict[str, Any]:
 
 def _capture_screenshot(page: Any, req: dict[str, Any], path: Path, width: int, height: int) -> dict[str, Any]:
     screenshot_format = req["screenshot_format"]
+    render_scale = int(req.get("render_scale", 1))
     options: dict[str, Any] = {
-        "path": str(path),
-        "type": screenshot_format,
         "animations": "disabled",
         "caret": "hide",
-        "scale": "css",
     }
-    if screenshot_format == "jpeg":
-        options["quality"] = int(req["screenshot_quality"])
 
     page.evaluate("() => window.scrollTo(0, 0)")
     page_height = int(
@@ -146,13 +143,40 @@ def _capture_screenshot(page: Any, req: dict[str, Any], path: Path, width: int, 
         capped = False
         options["full_page"] = False
 
-    page.screenshot(**options)
+    if render_scale == 1:
+        options.update(path=str(path), type=screenshot_format, scale="css")
+        if screenshot_format == "jpeg":
+            options["quality"] = int(req["screenshot_quality"])
+        page.screenshot(**options)
+    else:
+        # Capture losslessly at the browser's Retina density, then downsample once.
+        # The caller still receives the exact CSS-pixel dimensions it requested.
+        retina_path = path.with_name(f"{path.stem}.retina.png")
+        try:
+            options.update(path=str(retina_path), type="png", scale="device")
+            page.screenshot(**options)
+            with Image.open(retina_path) as retina:
+                output = retina.resize((width, capture_height), Image.Resampling.LANCZOS)
+                if screenshot_format == "jpeg":
+                    output.convert("RGB").save(
+                        path,
+                        format="JPEG",
+                        quality=int(req["screenshot_quality"]),
+                        subsampling=0,
+                        optimize=True,
+                    )
+                else:
+                    output.save(path, format="PNG", optimize=True)
+        finally:
+            retina_path.unlink(missing_ok=True)
+
     return {
         "mode": req["screenshot"],
         "format": screenshot_format,
         "quality": int(req["screenshot_quality"]) if screenshot_format == "jpeg" else None,
         "width": width,
         "height": capture_height,
+        "render_scale": render_scale,
         "page_height": page_height,
         "capped": capped,
     }
@@ -179,7 +203,10 @@ def run(req: dict[str, Any]) -> dict[str, Any]:
         launch_kwargs["proxy"] = req["proxy_url"]
         launch_kwargs["geoip"] = req["geoip"]
 
-    context_kwargs: dict[str, Any] = {"viewport": {"width": width, "height": height}}
+    context_kwargs: dict[str, Any] = {
+        "viewport": {"width": width, "height": height},
+        "device_scale_factor": int(req.get("render_scale", 1)),
+    }
     if req["har"]:
         context_kwargs.update(record_har_path=str(har_path), record_har_mode="full")
     if req["video"]:

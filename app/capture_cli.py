@@ -46,6 +46,13 @@ def add_capture_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--screenshot", choices=("full", "viewport", "off"), default="full")
     parser.add_argument("--screenshot-format", choices=("png", "jpeg"), default="png")
     parser.add_argument("--screenshot-quality", type=int, choices=range(101), default=98, metavar="0-100")
+    parser.add_argument(
+        "--render-scale",
+        type=int,
+        choices=(1, 2),
+        default=1,
+        help="Render at 2x before high-quality downsampling to the requested pixel dimensions",
+    )
     parser.add_argument("--max-screenshot-height", type=int, default=20_000, metavar="PIXELS")
     parser.add_argument("--video", action="store_true")
     parser.add_argument("--no-html", action="store_true")
@@ -85,6 +92,7 @@ async def run_capture(args: argparse.Namespace) -> int:
         screenshot=args.screenshot,
         screenshot_format=args.screenshot_format,
         screenshot_quality=args.screenshot_quality,
+        render_scale=args.render_scale,
         max_screenshot_height=args.max_screenshot_height,
         html=not args.no_html,
         har=not args.no_har,

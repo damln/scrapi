@@ -85,7 +85,12 @@ def test_screenshot_returns_single_jpeg(mock_capture, client):
     mock_capture.side_effect = fake_capture
     response = client.get(
         "/api/v1/screenshot",
-        params={"url": "https://example.com", "viewport": "mobile", "quality": 98},
+        params={
+            "url": "https://example.com",
+            "viewport": "mobile",
+            "quality": 99,
+            "render_scale": 2,
+        },
         headers=AUTH_HEADER,
     )
 
@@ -97,7 +102,8 @@ def test_screenshot_returns_single_jpeg(mock_capture, client):
     internal = mock_capture.await_args.args[0]
     assert (internal.width, internal.height) == (390, 844)
     assert internal.screenshot_format == "jpeg"
-    assert internal.screenshot_quality == 98
+    assert internal.screenshot_quality == 99
+    assert internal.render_scale == 2
     assert internal.html is False
     assert internal.har is False
 

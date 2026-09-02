@@ -54,6 +54,7 @@ class BrowserCaptureRequest:
     screenshot: ScreenshotMode = "full"
     screenshot_format: ScreenshotFormat = "png"
     screenshot_quality: int = 98
+    render_scale: int = 1
     max_screenshot_height: int = 20_000
     html: bool = True
     har: bool = True
@@ -87,6 +88,7 @@ class BrowserCaptureApiRequest(BaseModel):
     screenshot: ScreenshotMode = "full"
     screenshot_format: ScreenshotFormat = "png"
     screenshot_quality: int = Field(98, ge=0, le=100)
+    render_scale: int = Field(1, ge=1, le=2)
     max_screenshot_height: int = Field(20_000, ge=240, le=50_000)
     html: bool = True
     har: bool = True

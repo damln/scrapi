@@ -16,6 +16,7 @@ def test_capture_cli_exposes_evidence_and_runtime_controls():
         "--screenshot",
         "--screenshot-format",
         "--screenshot-quality",
+        "--render-scale",
         "--max-screenshot-height",
         "--resources",
         "--scroll-full",
@@ -34,6 +35,7 @@ def test_capture_request_defaults_to_scrapi_protections():
     assert request.humanize is True
     assert request.retries == 2
     assert request.screenshot_format == "png"
+    assert request.render_scale == 1
     assert request.max_screenshot_height == 20_000
 
 
@@ -90,6 +92,40 @@ def test_jpeg_full_page_screenshot_is_capped(tmp_path: Path):
     assert metadata["height"] == 20_000
     assert page.screenshot_options["quality"] == 98
     assert page.screenshot_options["clip"] == {"x": 0, "y": 0, "width": 1440, "height": 20_000}
+
+
+def test_retina_jpeg_is_downsampled_to_requested_dimensions(tmp_path: Path):
+    class FakePage:
+        screenshot_options = None
+
+        def evaluate(self, script):
+            return None if "scrollTo" in script else 1280
+
+        def screenshot(self, **options):
+            self.screenshot_options = options
+            Image.new("RGB", (2560, 2560), "white").save(options["path"], format="PNG")
+
+    from PIL import Image
+
+    page = FakePage()
+    path = tmp_path / "screenshot.jpg"
+    request = {
+        "screenshot_format": "jpeg",
+        "screenshot_quality": 99,
+        "render_scale": 2,
+        "screenshot": "viewport",
+        "max_screenshot_height": 3000,
+    }
+
+    metadata = _capture_screenshot(page, request, path, 1280, 1280)
+
+    with Image.open(path) as screenshot:
+        assert screenshot.size == (1280, 1280)
+        assert screenshot.format == "JPEG"
+    assert metadata["render_scale"] == 2
+    assert page.screenshot_options["scale"] == "device"
+    assert page.screenshot_options["type"] == "png"
+    assert not (tmp_path / "screenshot.retina.png").exists()
 
 
 def test_capture_archive_rewrites_artifact_paths(tmp_path: Path):

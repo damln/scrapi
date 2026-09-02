@@ -280,6 +280,12 @@ async def screenshot_endpoint(
     ] = None,
     full_page: bool = Query(True, description="Capture the full page instead of the visible viewport"),
     quality: int = Query(98, ge=0, le=100, description="JPEG quality"),
+    render_scale: int = Query(
+        1,
+        ge=1,
+        le=2,
+        description="Render at 2x before downsampling to the requested output dimensions",
+    ),
     max_page_height: int = Query(
         20_000,
         ge=240,
@@ -321,6 +327,7 @@ async def screenshot_endpoint(
                     "screenshot": "full" if full_page else "viewport",
                     "screenshot_format": "jpeg",
                     "screenshot_quality": quality,
+                    "render_scale": render_scale,
                     "max_screenshot_height": max_page_height,
                     "html": False,
                     "har": False,

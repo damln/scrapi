@@ -61,7 +61,8 @@ def curl_examples() -> dict[str, list[str]]:
             f'  --data-urlencode "url={EXAMPLE_PAGE_URL}" \\',
             '  --data-urlencode "viewport=mobile" \\',
             '  --data-urlencode "viewport=desktop" \\',
-            '  --data-urlencode "quality=98" \\',
+            '  --data-urlencode "quality=99" \\',
+            '  --data-urlencode "render_scale=2" \\',
             "  -o screenshots.zip",
         ],
         "POST /api/v1/export": [
