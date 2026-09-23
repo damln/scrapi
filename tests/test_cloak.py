@@ -39,7 +39,7 @@ def test_worker_reuses_browser_with_fresh_context_per_url():
 
 
 def test_worker_server_reports_browser_launch_failure(capsys):
-    with patch("app.cloak_worker._launch_browser", side_effect=RuntimeError("cannot launch browser")):
+    with patch("app.cloak_worker.launch_cloak_browser", side_effect=RuntimeError("cannot launch browser")):
         assert serve() == 1
 
     assert json.loads(capsys.readouterr().out) == {"ok": False, "error": "cannot launch browser"}

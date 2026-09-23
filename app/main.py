@@ -10,7 +10,7 @@ from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, PlainTex
 from fastapi.staticfiles import StaticFiles
 from starlette.background import BackgroundTask
 
-from app import asset_fetcher, cloak_fetcher, config, firecrawl_fetcher, twitter_fetcher, youtube_fetcher
+from app import asset_fetcher, config
 from app.action_runner import ActionError, ActionRequest, run_action
 from app.agent_docs import render_agent_markdown
 from app.auth import verify_token
@@ -20,6 +20,7 @@ from app.browser_capture import (
     build_capture_archive,
     capture_browser,
 )
+from app.fetch_clients import fetch_clients
 from app.fetcher import DEFAULT_PROVIDER_ORDER, fetch_urls
 from app.image_jobs import ImageJobs
 from app.image_routes import router as image_router
@@ -33,22 +34,13 @@ from app.status import get_status
 async def lifespan(app: FastAPI):
     if not config.API_TOKEN:
         raise RuntimeError("SCRAPI_API_TOKEN must be set to serve the HTTP API (the CLI does not need it)")
-    asset_fetcher.init_client()
-    firecrawl_fetcher.init_client()
-    twitter_fetcher.init_client()
-    youtube_fetcher.init_client()
-    cloak_fetcher.init_browser_pool()
-    app.state.image_jobs = ImageJobs()
-    app.state.image_jobs.start()
-    try:
-        yield
-    finally:
-        await app.state.image_jobs.close()
-    await cloak_fetcher.close_browser_pool()
-    await asset_fetcher.close_client()
-    await firecrawl_fetcher.close_client()
-    await twitter_fetcher.close_client()
-    await youtube_fetcher.close_client()
+    async with fetch_clients():
+        app.state.image_jobs = ImageJobs()
+        app.state.image_jobs.start()
+        try:
+            yield
+        finally:
+            await app.state.image_jobs.close()
 
 
 app = FastAPI(docs_url=None, redoc_url=None, openapi_url=None, lifespan=lifespan)
@@ -374,11 +366,6 @@ async def screenshot_endpoint(
         filename="scrapi-screenshots.zip",
         background=BackgroundTask(shutil.rmtree, root, True),
     )
-
-
-# ── Actions: replay an inline session into a stealth browser and act ──
-# Stateless: the caller passes the browser identity (cookies + UA) inline in
-# the request body. Nothing is stored server-side. Gated by the API token.
 
 
 @app.post("/api/v1/actions")

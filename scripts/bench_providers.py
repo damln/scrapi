@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Compare scrapi providers (all four by default) on a set of URLs.
+"""Compare scrapi providers on a set of URLs.
 
 Usage
 -----

@@ -4,8 +4,8 @@ stdout = single-line JSON result; stderr = logs / tracebacks. Exit 0
 on success, non-zero on any error.
 
 Why a subprocess (not in-process from the FastAPI worker):
-- Reliable cancellation: SIGKILL the process group from `cloak_fetcher`
-  on asyncio timeout / cancel, and every Chromium helper dies with it.
+- Reliable cancellation: SIGKILL the process group on asyncio timeout /
+  cancel, and every Chromium helper dies with it.
 - Crash isolation: a hung browser can't take out the API process.
 - No event-loop interleaving — `launch()` is the sync API, simpler.
 
@@ -21,20 +21,16 @@ import logging
 import sys
 from typing import Any
 
-from cloakbrowser import launch
-
 from app.ad_blocker import block_ads
-from app.config import FETCH_TIMEOUT_MS, PROXY_URL
+from app.browser_worker import compact_error, launch_cloak_browser
+from app.config import FETCH_TIMEOUT_MS
 from app.cookie_dismiss import dismiss_cookies
 
 logger = logging.getLogger(__name__)
 
 
 def _scroll_full_script() -> str:
-    """JS: incremental scroll to the bottom in 500px steps, 100ms apart.
-
-    Incremental scroll to trigger lazy-load on long pages.
-    """
+    """Scroll to the bottom incrementally to trigger lazy loading."""
     return (
         "() => new Promise(resolve => {"
         "  let total = 0;"
@@ -51,13 +47,6 @@ def _scroll_full_script() -> str:
     )
 
 
-def _launch_browser():
-    launch_kwargs: dict[str, Any] = {"humanize": True}
-    if PROXY_URL:
-        launch_kwargs["proxy"] = PROXY_URL
-    return launch(**launch_kwargs)
-
-
 def fetch(
     browser,
     url: str,
@@ -71,14 +60,8 @@ def fetch(
         # Network-layer ad/tracker blocking — must register BEFORE goto so
         # requests fired during page load can be aborted.
         page.route("**/*", block_ads)
-        # Two-stage wait: goto until `load`, then OPTIONALLY wait for
-        # `networkidle` with a tight cap. Sites with long-poll / WebSocket
-        # activity (Discourse, dashboards) never reach networkidle and
-        # would otherwise time out the whole fetch. Splitting lets us get
-        # the load-state HTML in those cases and only pay the networkidle
-        # tax when the page can actually settle. On well-behaved pages
-        # load fires fast and networkidle follows in ~1s — same total
-        # time as a single networkidle goto.
+        # Long-poll / WebSocket pages never reach networkidle, so wait for it
+        # separately with a short cap instead of failing the whole goto.
         goto_wait = wait_until or "load"
         response = page.goto(url, timeout=FETCH_TIMEOUT_MS, wait_until=goto_wait)
         if wait_until is None:
@@ -86,9 +69,6 @@ def fetch(
                 page.wait_for_load_state("networkidle", timeout=10_000)
             except Exception as exc:
                 logger.debug("networkidle not reached for %s in 10s: %s", url, exc)
-        # Cookie banner dismissal. Best-effort: any exception (banner not
-        # present, JS error, timeout) is logged but the fetch continues;
-        # we still return the HTML we have.
         try:
             dismiss_cookies(page)
         except Exception as exc:
@@ -112,16 +92,11 @@ def _write_protocol(payload: dict[str, Any]) -> None:
     sys.stdout.flush()
 
 
-def _compact_error(exc: Exception) -> str:
-    lines = [line.strip() for line in str(exc).splitlines() if line.strip()]
-    return lines[0] if lines else exc.__class__.__name__
-
-
 def serve() -> int:
     try:
-        browser = _launch_browser()
+        browser = launch_cloak_browser()
     except Exception as exc:
-        _write_protocol({"ok": False, "error": _compact_error(exc)})
+        _write_protocol({"ok": False, "error": compact_error(exc)})
         return 1
     try:
         for raw_request in sys.stdin:
@@ -135,7 +110,7 @@ def serve() -> int:
                     request.get("wait_for_selector"),
                 )
             except Exception as exc:
-                _write_protocol({"ok": False, "error": _compact_error(exc)})
+                _write_protocol({"ok": False, "error": compact_error(exc)})
                 return 1
             _write_protocol({"ok": True, "result": result})
         return 0
@@ -157,7 +132,7 @@ def main() -> int:
     if args.url is None:
         parser.error("url is required unless --serve is used")
 
-    browser = _launch_browser()
+    browser = launch_cloak_browser()
     try:
         result = fetch(browser, args.url, args.scroll_full, args.wait_until, args.wait_for_selector)
     finally:

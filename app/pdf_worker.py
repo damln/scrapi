@@ -11,12 +11,11 @@ from collections.abc import Iterable, Iterator
 from typing import Any
 from urllib.parse import urlparse
 
-from cloakbrowser import launch
 from PIL import Image
 from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
 
 from app.ad_blocker import is_blocked
-from app.config import PROXY_URL
+from app.browser_worker import compact_error, launch_cloak_browser
 
 logger = logging.getLogger(__name__)
 
@@ -355,11 +354,7 @@ def _write_raw_html(page, request: dict[str, Any]) -> None:
 
 
 def render(request: dict[str, Any]) -> dict[str, Any]:
-    launch_kwargs: dict[str, Any] = {"humanize": True}
-    if PROXY_URL:
-        launch_kwargs["proxy"] = PROXY_URL
-
-    browser = launch(**launch_kwargs)
+    browser = launch_cloak_browser()
     try:
         context = browser.new_context(**_context_options(request))
         page = context.new_page()
@@ -423,22 +418,17 @@ def main() -> int:
         result = {
             "status": "error",
             "status_code": 504,
-            "error": _compact_error(exc),
+            "error": compact_error(exc),
         }
     except Exception as exc:
         result = {
             "status": "error",
             "status_code": 502,
-            "error": _compact_error(exc),
+            "error": compact_error(exc),
         }
     sys.stdout.write(json.dumps(result))
     sys.stdout.flush()
     return 0
-
-
-def _compact_error(exc: Exception) -> str:
-    lines = [line.strip() for line in str(exc).splitlines() if line.strip()]
-    return lines[0] if lines else exc.__class__.__name__
 
 
 if __name__ == "__main__":

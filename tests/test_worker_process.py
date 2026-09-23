@@ -4,7 +4,7 @@ from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
 
-from app.worker_process import run_worker_process
+from app.worker_process import WorkerError, WorkerProcessResult, run_json_worker, run_worker_process
 
 
 def _process(*, returncode: int | None) -> Mock:
@@ -75,3 +75,44 @@ async def test_worker_process_ignores_an_already_gone_group():
         result = await run_worker_process("app.example_worker")
 
     assert result.returncode == 0
+
+
+class _ExampleError(WorkerError):
+    pass
+
+
+def _worker_result(stdout: bytes, *, returncode: int = 0, stderr: bytes = b"") -> WorkerProcessResult:
+    return WorkerProcessResult(stdout=stdout, stderr=stderr, returncode=returncode)
+
+
+@pytest.mark.asyncio
+async def test_json_worker_returns_successful_result():
+    worker = AsyncMock(return_value=_worker_result(b'{"status": "success", "value": 1}'))
+
+    with patch("app.worker_process.run_worker_process", new=worker):
+        result = await run_json_worker("app.example_worker", {"url": "x"}, 2_000, _ExampleError, "Example")
+
+    assert result == {"status": "success", "value": 1}
+    assert worker.await_args.kwargs["input_bytes"] == b'{"url": "x"}'
+    assert worker.await_args.kwargs["timeout_seconds"] == 2
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("outcome", "message", "status_code"),
+    [
+        (TimeoutError(), "Example timeout (2000ms)", 504),
+        (_worker_result(b"", returncode=3, stderr=b"boom\n"), "example_worker exit 3: boom", 502),
+        (_worker_result(b"not json"), "example_worker returned invalid JSON", 502),
+        (_worker_result(b'{"status": "error", "status_code": 504, "error": "slow"}'), "slow", 504),
+        (_worker_result(b'{"status": "error"}'), "Example failed", 502),
+    ],
+)
+async def test_json_worker_maps_failures_to_the_caller_error(outcome, message, status_code):
+    worker = AsyncMock(side_effect=outcome) if isinstance(outcome, Exception) else AsyncMock(return_value=outcome)
+
+    with patch("app.worker_process.run_worker_process", new=worker), pytest.raises(_ExampleError) as exc_info:
+        await run_json_worker("app.example_worker", {}, 2_000, _ExampleError, "Example")
+
+    assert str(exc_info.value) == message
+    assert exc_info.value.status_code == status_code

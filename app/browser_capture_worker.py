@@ -17,6 +17,7 @@ from PIL import Image
 from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
 
 from app.ad_blocker import block_ads
+from app.browser_worker import compact_error
 from app.cookie_dismiss import dismiss_cookies
 
 logger = logging.getLogger(__name__)
@@ -297,11 +298,6 @@ def run(req: dict[str, Any]) -> dict[str, Any]:
     return result
 
 
-def _compact_error(exc: Exception) -> str:
-    lines = [line.strip() for line in str(exc).splitlines() if line.strip()]
-    return lines[0] if lines else exc.__class__.__name__
-
-
 def main() -> int:
     req = json.loads(sys.stdin.buffer.read())
     try:
@@ -309,7 +305,7 @@ def main() -> int:
         code = 0
     except Exception as exc:
         logger.exception("browser capture failed")
-        result = {"status": "error", "error": _compact_error(exc)}
+        result = {"status": "error", "error": compact_error(exc)}
         code = 1
     sys.stdout.write(json.dumps(result))
     sys.stdout.flush()

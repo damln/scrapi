@@ -20,7 +20,6 @@ def test_content_rejects_bad_token(client):
 
 
 def test_content_accepts_valid_token(client):
-    # This will fail at the fetch level but auth should pass
     resp = client.get(
         "/api/v1/content",
         params={"urls": "https://example.com"},

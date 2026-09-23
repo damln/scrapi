@@ -7,7 +7,7 @@ from PIL import Image
 
 from app.config import FETCH_TIMEOUT_MS, PROXY_URL
 
-MAX_ASSET_BYTES = 20 * 1024 * 1024  # 20MB
+MAX_ASSET_BYTES = 20 * 1024 * 1024
 
 _DEFAULT_HEADERS = {
     "User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",

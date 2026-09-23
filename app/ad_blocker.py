@@ -9,13 +9,9 @@ Two-tier matching, both at module import:
    the Dockerfile from a pinned StevenBlack/hosts release (~80K hosts,
    ads + malware + fakenews). Lookup is subdomain-chain: a hit on a
    parent domain blocks every subdomain.
-2. **Legacy hardcoded fallback** — the ~50 high-signal hosts we
-   shipped in the first cut. Only used if the bundled file is missing
-   (local dev without a rebuilt image). Plus a tiny path-pattern set
-   for non-host stragglers like `yandex.ru/metrika`.
-
-Lookup is O(subdomain depth), typically <5. Substring scan against a
-big set was the v1 design; it didn't scale past a few hundred hosts.
+2. **Legacy hardcoded fallback** — ~50 high-signal hosts, always unioned
+   in. Plus a tiny path-pattern set for non-host stragglers like
+   `yandex.ru/metrika`.
 """
 
 from __future__ import annotations
@@ -31,15 +27,11 @@ logger = logging.getLogger(__name__)
 # Substring-matched against the full URL. Keep small.
 _PATTERN_DENYLIST: frozenset[str] = frozenset(
     [
-        # Yandex metrica lives at a path under yandex.ru, not its own host
         "yandex.ru/metrika",
     ]
 )
 
 
-# Last-resort host set used when the bundled file is missing. Same
-# entries the module shipped with originally; keeps tests and local
-# dev sane on images built before the Dockerfile got the curl step.
 _LEGACY_HOST_DENYLIST: frozenset[str] = frozenset(
     [
         "doubleclick.net",

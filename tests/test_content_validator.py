@@ -35,11 +35,7 @@ def test_blocked_content():
 
 
 def test_datadome_challenge_page_is_blocked():
-    # Real DataDome challenge body observed on leboncoin.fr/idealista.com
-    # (~1.5 KB). The previous validator passed this as success because
-    # only "captcha" was in the soft list and "captcha" alone was 1
-    # match (needed >= 2). The hard marker `geo.captcha-delivery.com`
-    # now catches it on the first occurrence.
+    # Real DataDome challenge body observed on leboncoin.fr/idealista.com.
     html = (
         '<html lang="en"><head><title>leboncoin.fr</title>'
         '<meta name="viewport" content="width=device-width, initial-scale=1.0">'
@@ -85,10 +81,6 @@ def test_coches_net_interruption_page_is_blocked():
 
 
 def test_real_help_article_about_captchas_still_passes():
-    # Negative case: a real article that mentions "captcha" multiple
-    # times but isn't a challenge page. "captcha" is not in the soft
-    # list (substring of recaptcha/hcaptcha — was tripping false
-    # positives on Reddit etc.), so this scores 0 soft hits.
     html = (
         "<html><body>"
         + "x" * 500
@@ -102,14 +94,8 @@ def test_real_help_article_about_captchas_still_passes():
 
 
 def test_reddit_thread_with_recaptcha_widget_passes():
-    # Regression for the May 2026 Reddit archiver failure: every
-    # reddit.com/r/<sub>/comments/<id>/ page ships a reCAPTCHA widget
-    # for the sign-up flow, so the served HTML contains ~30 mentions
-    # of "captcha" and ~15 of "recaptcha". Before the captcha-soft-list
-    # cleanup, those counted as two distinct soft hits and the chain
-    # validator rejected cloak's perfectly good 800 KB response,
-    # falling through to firecrawl which also failed on the target host
-    # stored scrapi_failed on every Reddit URL.
+    # Reddit threads ship a reCAPTCHA sign-up widget; it must count as one
+    # soft signal, not two.
     html = (
         "<html><body>"
         + "x" * 500

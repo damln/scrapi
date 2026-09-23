@@ -31,17 +31,11 @@ document.body.style.overflow = '';
 document.documentElement.style.overflow = '';
 """
 
-# Walk the cosmetic-filters stylesheet we just injected and physically
-# remove every element it matched, instead of leaving them hidden via
-# `display:none`. The browser has already parsed all 170 rules / tens
-# of thousands of selectors in `cosmetic_filters.css` — we just iterate
-# the parsed cssRules and call querySelectorAll + remove() per rule.
-# Why this matters: markdownify (and any DOM serialization for that
-# matter) re-emits hidden text. Hidden cookie walls were leaking into
-# our markdown output. Removed elements can't.
-# We identify our stylesheet by the alphabetically-first selector in
-# the file (`#-CookieConsentContainer`) so we don't accidentally walk
-# the site's own display:none rules (legit hidden tabs / dropdowns).
+# Remove every element our cosmetic-filters stylesheet matched instead of
+# leaving it hidden: DOM serialization and markdownify re-emit hidden text.
+# Our stylesheet is identified by its alphabetically-first selector
+# (`#-CookieConsentContainer`) so the site's own display:none rules are
+# never walked.
 COSMETIC_REMOVE_JS = """
 (() => {
     const SIGNATURE = '#-CookieConsentContainer';
@@ -76,11 +70,7 @@ COSMETIC_REMOVE_JS = """
 
 
 def dismiss_cookies(page):
-    """Inject cosmetic filters and observer to hide/remove cookie banners.
-
-    Runs as a StealthyFetcher page_action callback (sync).
-    Must return the page object.
-    """
+    """Inject cosmetic filters and observer to hide/remove cookie banners."""
     # 1. Inject CSS cosmetic filters (hides most banners instantly)
     page.add_style_tag(content=_CSS)
 
@@ -88,12 +78,8 @@ def dismiss_cookies(page):
     page.evaluate(_JS)
     page.wait_for_timeout(500)
 
-    # 3. Fallback: try clicking known accept buttons. Iterating one by one
-    # with a 300ms timeout each cost up to 2.4s on pages with no banner at
-    # all (forbes.com, news.ycombinator.com, etc.) — and on those pages
-    # steps 1+2 already did the work. A single locator built from a CSS
-    # selector group does the same job in one shot: if ANY of the buttons
-    # is visible, click it; if none, fall through fast.
+    # 3. Fallback: click a known accept button. One combined locator keeps
+    # pages without a banner fast.
     try:
         combined = ", ".join(FALLBACK_SELECTORS)
         locator = page.locator(combined).first
@@ -103,9 +89,7 @@ def dismiss_cookies(page):
     except Exception as exc:
         logger.debug("Cookie-banner click failed: %s", exc)
 
-    # 4. Walk our cosmetic-filters stylesheet and physically remove every
-    # element it matched (not just hide via CSS). Removes the markdown
-    # bloat that came from `display:none` cookie walls being serialized.
+    # 4. Remove elements matched by our cosmetic filters.
     page.evaluate(COSMETIC_REMOVE_JS)
 
     # 5. Last resort: force-remove known banner elements not covered by

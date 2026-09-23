@@ -1,20 +1,9 @@
 """One-shot CloakBrowser subprocess that performs an authenticated action.
 
-Mirror of ``app.pdf_worker`` (subprocess for cancellation + crash isolation),
-but instead of rendering it:
+Platform-specific DOM logic lives in ``app/recipes/``; this worker only
+dispatches.
 
-1. opens a fresh stealth context with the session's UA / viewport / locale,
-2. injects the session cookies via ``context.add_cookies`` so the page is
-   already logged in,
-3. optionally uploads media files through the real file input (something the
-   XActions console scripts can't do),
-4. runs a platform recipe (see ``app/recipes/``) or a raw browser script.
-
-Platform-specific DOM logic lives in ``app/recipes/`` (one module per
-platform); this worker stays platform-agnostic and only dispatches.
-
-stdin  = single-line JSON request (cookies come inline from the caller's
-         request; media paths are resolved by the async runner).
+stdin  = single-line JSON request.
 stdout = single-line JSON result. Exit 0 always; errors are in the payload.
 """
 
@@ -26,10 +15,9 @@ import logging
 import sys
 from typing import Any
 
-from cloakbrowser import launch
 from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
 
-from app.config import PROXY_URL
+from app.browser_worker import compact_error, launch_cloak_browser
 from app.recipes import RECIPES, helpers
 
 logger = logging.getLogger(__name__)
@@ -52,11 +40,7 @@ def _context_options(req: dict[str, Any]) -> dict[str, Any]:
 
 def run(req: dict[str, Any]) -> dict[str, Any]:
     timeout = req["timeout_ms"]
-    launch_kwargs: dict[str, Any] = {"humanize": True}
-    if PROXY_URL:
-        launch_kwargs["proxy"] = PROXY_URL
-
-    browser = launch(**launch_kwargs)
+    browser = launch_cloak_browser()
     try:
         context = browser.new_context(**_context_options(req))
         context.add_cookies(req["cookies"])
@@ -71,8 +55,6 @@ def run(req: dict[str, Any]) -> dict[str, Any]:
                 return {"status": "error", "status_code": 400, "error": f"unknown recipe: {recipe}"}
             result = recipe_fn(page, req, log)
         else:
-            # Raw-script escape hatch: platform unknown, so any media goes
-            # through a generic file input and the script runs in the page.
             helpers.upload_media(page, req.get("media_paths") or [], helpers.ANY_FILE_INPUT, None, timeout, log)
             result = page.evaluate(req["script"], req.get("params"))
 
@@ -91,19 +73,14 @@ def run(req: dict[str, Any]) -> dict[str, Any]:
         browser.close()
 
 
-def _compact_error(exc: Exception) -> str:
-    lines = [line.strip() for line in str(exc).splitlines() if line.strip()]
-    return lines[0] if lines else exc.__class__.__name__
-
-
 def main() -> int:
     req = json.loads(sys.stdin.buffer.read().decode("utf-8"))
     try:
         result = run(req)
     except PlaywrightTimeoutError as exc:
-        result = {"status": "error", "status_code": 504, "error": _compact_error(exc)}
-    except Exception as exc:  # surface any browser error as JSON, never crash the worker
-        result = {"status": "error", "status_code": 502, "error": _compact_error(exc)}
+        result = {"status": "error", "status_code": 504, "error": compact_error(exc)}
+    except Exception as exc:
+        result = {"status": "error", "status_code": 502, "error": compact_error(exc)}
     sys.stdout.write(json.dumps(result))
     sys.stdout.flush()
     return 0

@@ -1,24 +1,4 @@
-"""Command-line interface — the full scraping pipeline without HTTP.
-
-Runs the same code paths as the API endpoints (provider fallback chain,
-content validation, markdown conversion, PDF/PNG export, browser
-actions) directly in-process. No server, no SCRAPI_API_TOKEN needed.
-
-Usage (from the repo, a venv, or inside the Docker image):
-
-    python -m app.cli content https://example.com
-    python -m app.cli content https://example.com --format markdown
-    python -m app.cli asset https://example.com/logo.png -o logo.png
-    python -m app.cli export --url https://example.com -o page.pdf
-    python -m app.cli capture https://example.com -o _tmp/example --video
-    python -m app.cli actions --request request.json
-    python -m app.cli status
-    python -m app.cli agent
-
-Docker one-shot (same image as the server):
-
-    docker run --rm scrapi python -m app.cli content https://example.com
-"""
+"""Command-line interface: the API's code paths in-process, without HTTP."""
 
 from __future__ import annotations
 
@@ -27,15 +7,15 @@ import asyncio
 import base64
 import json
 import sys
-from collections.abc import AsyncIterator, Callable, Coroutine
-from contextlib import asynccontextmanager
+from collections.abc import Callable, Coroutine
 from pathlib import Path
 from typing import Any
 
 from pydantic import ValidationError
 
-from app import asset_fetcher, cloak_fetcher, firecrawl_fetcher, twitter_fetcher, youtube_fetcher
+from app import asset_fetcher
 from app.action_runner import ActionError, ActionRequest, run_action
+from app.fetch_clients import fetch_clients
 from app.fetcher import DEFAULT_PROVIDER_ORDER, fetch_urls
 from app.pdf_renderer import PdfRenderError, PdfRenderRequest, render_export
 from app.proxy_profiles import ProxyProfileError, resolve_proxy_profile
@@ -89,24 +69,6 @@ discovery:
 """
 
 
-@asynccontextmanager
-async def _http_clients() -> AsyncIterator[None]:
-    """Mirror app.main's lifespan: shared httpx clients for the fetchers."""
-    asset_fetcher.init_client()
-    firecrawl_fetcher.init_client()
-    twitter_fetcher.init_client()
-    youtube_fetcher.init_client()
-    cloak_fetcher.init_browser_pool()
-    try:
-        yield
-    finally:
-        await cloak_fetcher.close_browser_pool()
-        await asset_fetcher.close_client()
-        await firecrawl_fetcher.close_client()
-        await twitter_fetcher.close_client()
-        await youtube_fetcher.close_client()
-
-
 def _emit_json(payload: object) -> None:
     sys.stdout.write(json.dumps(payload, ensure_ascii=False, indent=2) + "\n")
 
@@ -137,7 +99,7 @@ async def _cmd_content(args: argparse.Namespace) -> int:
     if args.format != "json" and len(args.urls) > 1:
         return _fail(f"--format {args.format} requires a single URL")
 
-    async with _http_clients():
+    async with fetch_clients():
         results = await fetch_urls(
             args.urls,
             no_style=args.no_style,
@@ -164,7 +126,7 @@ async def _cmd_content(args: argparse.Namespace) -> int:
 
 
 async def _cmd_asset(args: argparse.Namespace) -> int:
-    async with _http_clients():
+    async with fetch_clients():
         result = await asset_fetcher.fetch_and_process_asset(
             args.url, args.output_format, args.max_width, args.max_height
         )

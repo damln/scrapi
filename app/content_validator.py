@@ -8,10 +8,7 @@ MIN_HTML_LENGTH = 256
 # here if a false positive is implausible (e.g. no real site embeds
 # `geo.captcha-delivery.com` in its DOM unless DataDome served it).
 HARD_BLOCK_MARKERS = [
-    # DataDome challenge / captcha iframe — observed on idealista.com and
-    # leboncoin.fr (1.5 KB stub page that scrapi otherwise reports as
-    # status: success because the soft heuristic only counted "captcha"
-    # once and needed >= 2 matches).
+    # DataDome challenge / captcha iframe.
     "geo.captcha-delivery.com",
     "datadome captcha",
     # Cloudflare bot management / managed challenge — these tokens appear
@@ -34,12 +31,9 @@ HARD_BLOCK_MARKERS = [
 # an error doc explaining 403s). We require >= 2 distinct matches before
 # failing validation, on the theory that real pages won't trip multiple
 # of these at once.
-# Note: bare "captcha" is intentionally excluded. It's a substring of
-# "recaptcha" / "hcaptcha", so any page that ships one of those widgets
-# (Reddit comment threads, Etsy sign-up, ...) was tripping two hits from
-# what is really one signal. Vendor-specific strings below + the
-# HARD_BLOCK_MARKERS (datadome captcha, px-captcha, geo.captcha-delivery)
-# already cover real challenge pages.
+# Bare "captcha" is intentionally excluded: it is a substring of
+# "recaptcha" / "hcaptcha", so pages with those widgets would count one
+# signal twice. HARD_BLOCK_MARKERS already cover real challenge pages.
 BLOCKED_INDICATORS = [
     "access denied",
     "403 forbidden",
@@ -63,13 +57,7 @@ BLOCKED_INDICATORS = [
 
 
 def validate_content(html: str) -> dict:
-    """Check whether HTML content looks like a real page vs a block/captcha page.
-
-    Two-tier check:
-    - HARD_BLOCK_MARKERS — single occurrence fails. Vendor-specific
-      strings that don't legitimately appear in real content.
-    - BLOCKED_INDICATORS — soft phrases; require >= 2 distinct matches.
-    """
+    """Check whether HTML content looks like a real page vs a block/captcha page."""
     scores: dict[str, object] = {}
 
     html_length = len(html)

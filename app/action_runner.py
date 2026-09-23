@@ -1,15 +1,7 @@
 """Async orchestration for the browser-action engine.
 
-Mirrors ``app.pdf_renderer``'s subprocess plumbing (semaphore, killable
-process group, hard timeout). The API is fully stateless: the caller passes
-the browser identity (cookies + UA / viewport / locale) inline in the request
-``session`` object — nothing is read from disk. The runner only adds:
-
-- **media resolution** — inline ``data_base64`` and remote ``url`` media are
-  fetched + written to a temp dir; the worker only ever sees file paths.
-
-The worker (``app.action_worker``) is a pure function of its JSON input, so it
-never reads any store or the network for media.
+Inline and remote media are written to a temp dir here, so the worker
+(``app.action_worker``) only ever sees file paths.
 """
 
 from __future__ import annotations
@@ -17,7 +9,6 @@ from __future__ import annotations
 import asyncio
 import base64
 import binascii
-import json
 import shutil
 import tempfile
 from dataclasses import dataclass
@@ -30,7 +21,7 @@ from pydantic import BaseModel, Field, model_validator
 from app import asset_fetcher
 from app.browser_budget import browser_slot
 from app.config import ACTION_MAX_CONCURRENT, ACTION_RENDER_TIMEOUT_MS
-from app.worker_process import run_worker_process
+from app.worker_process import WorkerError, run_json_worker
 
 SameSite = Literal["Strict", "Lax", "None"]
 
@@ -44,10 +35,8 @@ _EXT_BY_CT = {
 }
 
 
-class ActionError(Exception):
-    def __init__(self, message: str, status_code: int = 502):
-        super().__init__(message)
-        self.status_code = status_code
+class ActionError(WorkerError):
+    pass
 
 
 class Cookie(BaseModel):
@@ -118,7 +107,7 @@ class MediaItem(BaseModel):
 class ActionRequest(BaseModel):
     session: Session
     url: str = Field(..., min_length=1)
-    # Keep in sync with app/recipes/__init__.RECIPES (add "li_post" for LinkedIn).
+    # Keep in sync with app.recipes.RECIPES.
     recipe: Literal["x_post"] | None = None
     params: dict[str, Any] = Field(default_factory=dict)
     script: str | None = None
@@ -221,28 +210,7 @@ async def run_action(request: ActionRequest) -> ActionResult:
 
 async def _run_in_subprocess(payload: dict, step_timeout_ms: int) -> ActionResult:
     timeout_ms = max(ACTION_RENDER_TIMEOUT_MS, step_timeout_ms + 15_000)
-
-    try:
-        process_result = await run_worker_process(
-            "app.action_worker",
-            input_bytes=json.dumps(payload).encode("utf-8"),
-            timeout_seconds=timeout_ms / 1000,
-        )
-    except TimeoutError as exc:
-        raise ActionError(f"action timeout ({timeout_ms}ms)", status_code=504) from exc
-
-    stderr_text = process_result.stderr.decode("utf-8", errors="replace").strip()
-    if process_result.returncode != 0:
-        raise ActionError(f"action_worker exit {process_result.returncode}: {stderr_text[:500]}")
-
-    try:
-        result = json.loads(process_result.stdout.decode("utf-8", errors="replace"))
-    except json.JSONDecodeError as exc:
-        raise ActionError("action_worker returned invalid JSON") from exc
-
-    if result.get("status") != "success":
-        raise ActionError(result.get("error") or "action failed", status_code=int(result.get("status_code") or 502))
-
+    result = await run_json_worker("app.action_worker", payload, timeout_ms, ActionError, "action")
     return ActionResult(
         status="success",
         result=result.get("result"),

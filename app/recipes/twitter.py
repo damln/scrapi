@@ -3,9 +3,6 @@
 Selectors verified Jan 2026 (see docs/agents/selectors.md in the XActions
 reference). The recipe runs in the action_worker subprocess against a page
 that already carries the session's auth cookies, so it's logged in.
-
-To add LinkedIn later: create app/recipes/linkedin.py with the same
-fn(page, req, log) -> dict shape and register it in __init__.RECIPES.
 """
 
 from __future__ import annotations

@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import asyncio
 import base64
-import json
 from dataclasses import dataclass
 from typing import Literal
 from urllib.parse import urlparse
@@ -11,7 +10,7 @@ from pydantic import BaseModel, Field, field_validator, model_validator
 
 from app.browser_budget import browser_slot
 from app.config import PDF_MAX_CONCURRENT, PDF_RENDER_TIMEOUT_MS
-from app.worker_process import run_worker_process
+from app.worker_process import WorkerError, run_json_worker
 
 HeaderScope = Literal["same_origin", "all"]
 MediaMode = Literal["screen", "print"]
@@ -44,10 +43,8 @@ FORBIDDEN_HEADER_NAMES = {
 }
 
 
-class PdfRenderError(Exception):
-    def __init__(self, message: str, status_code: int = 502):
-        super().__init__(message)
-        self.status_code = status_code
+class PdfRenderError(WorkerError):
+    pass
 
 
 class MarginOptions(BaseModel):
@@ -345,32 +342,14 @@ async def render_export(request: PdfRenderRequest) -> PdfRenderResult:
 
 
 async def _render_pdf_in_subprocess(request: PdfRenderRequest) -> PdfRenderResult:
-    payload = request.model_dump(mode="json")
     timeout_ms = max(PDF_RENDER_TIMEOUT_MS, request.wait.timeout_ms + 15_000)
-
-    try:
-        process_result = await run_worker_process(
-            "app.pdf_worker",
-            input_bytes=json.dumps(payload).encode("utf-8"),
-            timeout_seconds=timeout_ms / 1000,
-        )
-    except TimeoutError as exc:
-        raise PdfRenderError(f"Export render timeout ({timeout_ms}ms)", status_code=504) from exc
-
-    stderr_text = process_result.stderr.decode("utf-8", errors="replace").strip()
-    if process_result.returncode != 0:
-        raise PdfRenderError(f"pdf_worker exit {process_result.returncode}: {stderr_text[:500]}")
-
-    try:
-        result = json.loads(process_result.stdout.decode("utf-8", errors="replace"))
-    except json.JSONDecodeError as exc:
-        raise PdfRenderError("pdf_worker returned invalid JSON") from exc
-
-    if result.get("status") != "success":
-        status_code = int(result.get("status_code") or 502)
-        error = result.get("error") or "Export render failed"
-        raise PdfRenderError(error, status_code=status_code)
-
+    result = await run_json_worker(
+        "app.pdf_worker",
+        request.model_dump(mode="json"),
+        timeout_ms,
+        PdfRenderError,
+        "Export render",
+    )
     return PdfRenderResult(
         data=base64.b64decode(result["data_base64"]),
         content_type=result["content_type"],

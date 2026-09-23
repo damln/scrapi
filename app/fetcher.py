@@ -36,9 +36,6 @@ def _sanitize_utf8(html: str) -> str:
 def _post_process(html: str, url: str, no_style: bool, no_script: bool) -> tuple[str, dict, str | None]:
     html = _sanitize_utf8(html)
     head_meta = extract_head_meta(html)
-    # Strip inline base64 image blobs early — must run BEFORE markdownify
-    # so markdown bodies don't carry the bloat through. Always-on; the
-    # regex is sub-ms on pages that don't contain any.
     html = strip_data_url_images(html)
     if no_script:
         html = strip_inline_scripts(html)
@@ -52,9 +49,6 @@ def _post_process(html: str, url: str, no_style: bool, no_script: bool) -> tuple
 
 DEFAULT_PROVIDER_ORDER = ["cloak", "firecrawl"]
 
-# Providers that don't need an API key (they're local processes / binaries).
-# Used by `_try_provider` to decide whether to skip a provider for missing
-# credentials before spending time trying to invoke it.
 KEYLESS_PROVIDERS = {"cloak"}
 
 PROVIDER_API_KEYS = {
@@ -177,8 +171,6 @@ async def _fetch_single_url_inner(
     wait_for_selector: str | None,
     proxy_profile: str,
 ) -> dict:
-    """Inner fetch logic, separated so fetch_single_url can wrap it with a hard timeout."""
-    # Special-case Twitter and YouTube — use dedicated API fetchers
     special_result = await _try_special_fetcher(url, raw_url, proxy_profile)
     if special_result is not None:
         return special_result
