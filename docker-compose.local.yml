@@ -1,0 +1,17 @@
+name: scrapi-local
+services:
+  app:
+    build: .
+    init: true
+    shm_size: 1gb
+    ports:
+      - "127.0.0.1:10700:10700"
+    environment:
+      SCRAPI_API_TOKEN: ${SCRAPI_API_TOKEN:-dev-token-change-me}
+      PROXY_URL: ${PROXY_URL:-}
+      SCRAPI_CHATGPT_SESSION_FILE: /run/secrets/chatgpt-session.json
+      TMPDIR: /app/_tmp
+    tmpfs:
+      - /app/_tmp:size=1g,mode=1777
+    volumes:
+      - ./secrets:/run/secrets:ro

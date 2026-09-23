@@ -21,6 +21,8 @@ from app.browser_capture import (
     capture_browser,
 )
 from app.fetcher import DEFAULT_PROVIDER_ORDER, fetch_urls
+from app.image_jobs import ImageJobs
+from app.image_routes import router as image_router
 from app.pdf_renderer import PdfRenderError, PdfRenderRequest, PdfRenderResult, render_export
 from app.proxy_profiles import ProxyProfileError, available_proxy_profiles, resolve_proxy_profile
 from app.screenshot import build_screenshot_archive, parse_viewports
@@ -36,7 +38,12 @@ async def lifespan(app: FastAPI):
     twitter_fetcher.init_client()
     youtube_fetcher.init_client()
     cloak_fetcher.init_browser_pool()
-    yield
+    app.state.image_jobs = ImageJobs()
+    app.state.image_jobs.start()
+    try:
+        yield
+    finally:
+        await app.state.image_jobs.close()
     await cloak_fetcher.close_browser_pool()
     await asset_fetcher.close_client()
     await firecrawl_fetcher.close_client()
@@ -45,6 +52,7 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(docs_url=None, redoc_url=None, openapi_url=None, lifespan=lifespan)
+app.include_router(image_router)
 app.mount("/static", StaticFiles(directory=Path(__file__).resolve().parent / "static"), name="static")
 
 MAX_URLS_PER_REQUEST = 10

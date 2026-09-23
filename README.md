@@ -29,6 +29,37 @@ Use `python -m app.cli --help`, command-specific `--help`, or
 `python -m app.cli agent` inside the image for the full interface.
 The running service exposes the same [API guide](http://localhost:10700/api/v1/agent).
 
+For ChatGPT image generation and polling, use the standard-library
+[Python client](scripts/generate_images.py):
+
+```sh
+python3 scripts/generate_images.py "A watercolor fox" \
+  --session /path/to/private/session.json --images ./references --output ./generated
+```
+
+An empty reference folder is accepted. Set `SCRAPI_BASE_URL` and
+`SCRAPI_API_TOKEN` to call a remote instance. The live API guide owns the
+request schema, limits and polling contract. Image jobs are held in memory,
+so run a single API worker and expect jobs to disappear on restart.
+
+The [local Compose stack](docker-compose.local.yml) mounts private session
+files from `secrets/` (excluded from Git and image builds). Save your ChatGPT
+cookie export as `secrets/chatgpt-session.json` to omit `--session`.
+To use an existing remote SOCKS proxy, keep an SSH forward open in a terminal:
+
+```sh
+ssh -N -L 127.0.0.1:11080:127.0.0.1:1080 YOUR_PROXY_SSH_HOST
+```
+
+On Docker Desktop, start Scrapi in another terminal with:
+
+```sh
+PROXY_URL=socks5://host.docker.internal:11080 \
+  docker compose -f docker-compose.local.yml up -d --build
+```
+
+Omit `PROXY_URL` for direct access. No SSH keys belong in the repository.
+
 ## Source map
 
 - [app/main.py](app/main.py) and [app/cli.py](app/cli.py): entry points.

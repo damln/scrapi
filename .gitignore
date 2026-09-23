@@ -17,6 +17,7 @@ htmlcov/
 .venv/
 cache/
 _tmp/
+secrets/
 
 docker-compose.prod.yml
 

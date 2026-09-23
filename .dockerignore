@@ -15,6 +15,7 @@ __pycache__/
 docker-compose.prod.yml
 cache/
 _tmp/
+secrets/
 
 deploy/
 COCHES_NET_SCRAPI_PLAN.md

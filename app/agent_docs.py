@@ -11,6 +11,18 @@ from app.fetcher import DEFAULT_PROVIDER_ORDER
 from app.recipes import RECIPE_PARAM_MODELS
 
 ENDPOINT_NOTES = {
+    "/api/v1/images/generations": [
+        "Generates images through your ChatGPT session using Scrapi CloakBrowser and proxy_profile=current (PROXY_URL). Returns 202 immediately with id and poll_url.",
+        "Supply prompt, optional images (mime_type + b64_json), and session (cookie export or Playwright storage state). Omit session only when SCRAPI_CHATGPT_SESSION_FILE is configured server-side.",
+        "At most 4 input images of 10 MiB each, 30 MiB total JSON. Session data is never returned or persisted.",
+        "One generation runs at a time, up to 4 retained jobs. Generation timeout is 600 seconds after the serial queue, including waiting for a browser slot.",
+        "Jobs/results live in this process only, expire 1 hour after completion and are lost on restart/reload. Route image endpoints to one replica with one Uvicorn worker. No automatic resubmission after errors.",
+    ],
+    "/api/v1/images/jobs/{job_id}": [
+        "GET polls queued|running|completed|failed. Poll every 3 seconds. completed includes result.images[].mime_type/b64_json, text and conversation_url.",
+        "failed includes an error code such as session_expired, browser_verification_required, chatgpt_rate_limited or generation_timeout. A failed job may already have submitted a prompt.",
+        "DELETE frees a completed/failed job. Active jobs return 409. Unknown/expired jobs return 404.",
+    ],
     "/api/v1/content": [
         "Use first for web page content. Read results[].markdown first; use results[].html for structured extraction.",
         "YouTube results include the preferred English transcript plus every available native-language track.",

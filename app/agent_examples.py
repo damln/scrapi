@@ -44,6 +44,12 @@ def curl_examples() -> dict[str, list[str]]:
     ).model_dump(mode="json", exclude_none=True)
 
     return {
+        "POST /api/v1/images/generations": [
+            'curl -sS "$SCRAPI_BASE_URL/api/v1/images/generations" -H "Authorization: Bearer $SCRAPI_API_TOKEN" -H "Content-Type: application/json" --data \'{"prompt":"A watercolor fox","images":[]}\'',
+        ],
+        "GET /api/v1/images/jobs/{job_id}": [
+            'curl -sS "$SCRAPI_BASE_URL/api/v1/images/jobs/$JOB_ID" -H "Authorization: Bearer $SCRAPI_API_TOKEN"',
+        ],
         "GET /api/v1/content": [
             'curl -sS -G "$SCRAPI_BASE_URL/api/v1/content" \\',
             '  -H "Authorization: Bearer $SCRAPI_API_TOKEN" \\',
@@ -116,6 +122,21 @@ def response_examples() -> dict[str, object]:
     )
 
     return {
+        "POST /api/v1/images/generations": {
+            "id": "example-job",
+            "status": "queued",
+            "poll_url": "/api/v1/images/jobs/example-job",
+        },
+        "GET /api/v1/images/jobs/{job_id}": {
+            "id": "example-job",
+            "status": "completed",
+            "poll_url": "/api/v1/images/jobs/example-job",
+            "result": {
+                "images": [{"mime_type": "image/png", "b64_json": "<base64>"}],
+                "text": "",
+                "conversation_url": "https://chatgpt.com/c/example",
+            },
+        },
         "GET /api/v1/content": {"results": [content_result]},
         "GET /api/v1/asset": {
             "url": EXAMPLE_ASSET_URL,

@@ -29,6 +29,7 @@ FIRECRAWL_BASE_URL = "https://api.firecrawl.dev/v1"
 FIRECRAWL_TIMEOUT_SECONDS = int(os.environ.get("FIRECRAWL_TIMEOUT_SECONDS", "30"))
 
 PROXY_URL = os.environ.get("PROXY_URL", "")
+CHATGPT_SESSION_FILE = os.environ.get("SCRAPI_CHATGPT_SESSION_FILE", "")
 
 # Browser-action engine (actions endpoint). Stateless: the caller passes the
 # browser identity (cookies + UA) inline in the request — no store, no volume.
