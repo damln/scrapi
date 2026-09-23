@@ -275,7 +275,13 @@ def _build_fxtwitter_result(url: str, tweet: dict, thread_parents: list[dict] | 
 </body>
 </html>"""
 
-    return {"html": html.strip(), "title": title, "provider": "twitter", "twitter_source": "fxtwitter"}
+    return {
+        "html": html.strip(),
+        "title": title,
+        "provider": "twitter",
+        "twitter_source": "fxtwitter",
+        "twitter_images": media_images,
+    }
 
 
 def _render_ancestor(parent: dict) -> str:

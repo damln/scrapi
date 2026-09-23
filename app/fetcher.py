@@ -250,6 +250,7 @@ async def _try_special_fetcher(url: str, raw_url: str, proxy_profile: str) -> di
         head_meta,
         markdown,
         twitter_source=result.get("twitter_source"),
+        twitter_images=result.get("twitter_images"),
     )
     if result["provider"] == "youtube":
         for key in ("video_id", "transcript", "transcripts", "transcript_error"):
@@ -267,6 +268,7 @@ def _success(
     markdown: str | None = None,
     http_metadata: dict | None = None,
     twitter_source: str | None = None,
+    twitter_images: list[str] | None = None,
 ) -> dict:
     result: dict[str, Any] = {
         "url": url,
@@ -288,6 +290,8 @@ def _success(
     # without having to content-sniff the HTML.
     if twitter_source:
         result["twitter_source"] = twitter_source
+    if twitter_images:
+        result["twitter_images"] = twitter_images
     return result
 
 

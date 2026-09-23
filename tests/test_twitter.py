@@ -166,6 +166,7 @@ def test_fxtwitter_media_images(client):
 
     result = resp.json()["results"][0]
     assert "photo1.jpg" in result["html"]
+    assert result["twitter_images"] == ["https://pbs.twimg.com/media/photo1.jpg"]
 
 
 @respx.mock
