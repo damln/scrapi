@@ -1,5 +1,62 @@
+from unittest.mock import MagicMock
+
+import pytest
+from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
+
 from app.recipes import RECIPE_PARAM_MODELS, RECIPES
-from app.recipes.twitter import CREATE_TWEET_RE, _rest_id_from_payload
+from app.recipes.twitter import CREATE_TWEET_RE, _dismiss_composer_suggestions, _rest_id_from_payload, x_post
+
+
+def test_dismiss_composer_suggestions():
+    page, editor = MagicMock(), MagicMock()
+    editor.get_attribute.return_value = "typeaheadDropdownWrapped-1"
+    log = []
+
+    _dismiss_composer_suggestions(page, editor, 5000, log)
+
+    page.locator.assert_called_once_with('[id="typeaheadDropdownWrapped-1"][role="listbox"]')
+    page.keyboard.press.assert_called_once_with("Escape")
+    editor.press.assert_not_called()
+    page.locator.return_value.wait_for.assert_called_once_with(state="hidden", timeout=5000)
+    assert log == ["dismissed composer suggestions"]
+
+
+@pytest.mark.parametrize("controls", [None, "typeaheadDropdownWrapped-1"])
+def test_no_escape_without_visible_suggestions(controls):
+    page, editor = MagicMock(), MagicMock()
+    editor.get_attribute.return_value = controls
+    page.locator.return_value.is_visible.return_value = False
+
+    _dismiss_composer_suggestions(page, editor, 5000, [])
+
+    editor.press.assert_not_called()
+    page.keyboard.press.assert_not_called()
+
+
+def test_dismiss_failure_stops_composing():
+    page, editor = MagicMock(), MagicMock()
+    editor.get_attribute.return_value = "typeaheadDropdownWrapped-1"
+    page.locator.return_value.wait_for.side_effect = PlaywrightTimeoutError("still open")
+
+    with pytest.raises(PlaywrightTimeoutError, match="still open"):
+        _dismiss_composer_suggestions(page, editor, 5000, [])
+
+
+def test_dry_run_dismisses_suggestions_for_each_thread_entry(monkeypatch):
+    page = MagicMock()
+    dismiss = MagicMock()
+    monkeypatch.setattr("app.recipes.twitter._dismiss_composer_suggestions", dismiss)
+    text = "https://example.com/#hero"
+    req = {"timeout_ms": 5000, "params": {"text": text, "thread": ["@example"], "dry_run": True}}
+
+    result = x_post(page, req, [])
+
+    assert result == {"posted": False, "dry_run": True, "tweets": 2}
+    assert dismiss.call_count == 2
+    assert dismiss.call_args_list[0].args[1] is page.locator.return_value.first
+    assert dismiss.call_args_list[1].args[1] is page.locator.return_value.last
+    assert [call.args[0] for call in page.keyboard.insert_text.call_args_list] == [text, "@example"]
+    page.expect_response.assert_not_called()
 
 
 def test_x_post_registered():

@@ -10,6 +10,7 @@ fn(page, req, log) -> dict shape and register it in __init__.RECIPES.
 
 from __future__ import annotations
 
+import json
 import re
 from typing import Any
 from urllib.parse import urlparse
@@ -89,6 +90,19 @@ def _composer_open(page, timeout: int = 4000) -> bool:
     except PlaywrightTimeoutError:
         return False
     return True
+
+
+def _dismiss_composer_suggestions(page, editor, timeout: int, log: list[str]) -> None:
+    controls = editor.get_attribute("aria-controls")
+    if not controls:
+        return
+    suggestions = page.locator(f'[id={json.dumps(controls)}][role="listbox"]')
+    if not suggestions.is_visible():
+        return
+    # X opens hashtag suggestions even for URL fragments. Its backdrop blocks Post.
+    page.keyboard.press("Escape")
+    suggestions.wait_for(state="hidden", timeout=timeout)
+    log.append("dismissed composer suggestions")
 
 
 def _rest_id_from_payload(payload: Any) -> str | None:
@@ -194,12 +208,15 @@ def x_post(page, req: dict[str, Any], log: list[str]) -> dict[str, Any]:
     helpers.upload_media(page, req.get("media_paths") or [], FILE_INPUT, ATTACHMENTS, timeout, log)
 
     helpers.type_into(page, first, tweets[0])
+    _dismiss_composer_suggestions(page, first, timeout, log)
     log.append(f"typed tweet 1/{len(tweets)}")
 
     for index, body in enumerate(tweets[1:], start=2):
         page.locator(ADD_BUTTON).first.click()
         page.wait_for_timeout(600)
-        helpers.type_into(page, page.locator(ANY_TEXTAREA).last, body)
+        editor = page.locator(ANY_TEXTAREA).last
+        helpers.type_into(page, editor, body)
+        _dismiss_composer_suggestions(page, editor, timeout, log)
         log.append(f"typed tweet {index}/{len(tweets)}")
 
     if dry_run:
