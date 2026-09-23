@@ -100,7 +100,9 @@ def context_options(value: dict) -> dict:
 
 
 class ChatGPTBrowser:
-    async def generate(self, prompt: str, images: list[dict], session: dict, proxy_url: str) -> dict:
+    async def generate(
+        self, prompt: str, images: list[dict], session: dict, proxy_url: str, conversation_url: str | None = None
+    ) -> dict:
         browser = None
         stage = "browser_start"
         try:
@@ -118,13 +120,16 @@ class ChatGPTBrowser:
             )
             page.set_default_timeout(30000)
             stage = "navigation"
-            await page.goto("https://chatgpt.com/", wait_until="domcontentloaded")
+            await page.goto(conversation_url or "https://chatgpt.com/", wait_until="domcontentloaded")
             await self.check_access(page)
             stage = "composer"
             editor = page.locator("#prompt-textarea")
             await editor.wait_for(state="visible")
             await self.check_access(page)
             self.check_response_errors(response_errors)
+            if conversation_url:
+                stage = "conversation_load"
+                await self.check_conversation(page, conversation_url)
             if images:
                 stage = "image_upload"
                 upload = page.locator('input[type="file"]').first
@@ -133,12 +138,17 @@ class ChatGPTBrowser:
                 await upload.set_input_files(images)
             stage = "composer"
             await self.enter_prompt(editor, prompt)
+            if conversation_url:
+                await self.check_conversation(page, conversation_url)
+            previous_turns = await page.locator('[data-testid^="conversation-turn-"]').evaluate_all(
+                "elements => elements.map(e => e.getAttribute('data-testid'))"
+            )
             stage = "submission"
             send = page.locator('[data-testid="send-button"]')
             # The send button is disabled while attachments are uploading.
             await send.click()
             stage = "result"
-            return await self.wait_for_result(page, response_errors)
+            return await self.wait_for_result(page, response_errors, previous_turns)
         except PlaywrightTimeoutError:
             raise GenerationError(f"{stage}_timeout") from None
         except PlaywrightError:
@@ -146,6 +156,18 @@ class ChatGPTBrowser:
         finally:
             if browser is not None:
                 await browser.close()
+
+    async def check_conversation(self, page, conversation_url):
+        try:
+            await page.locator('[data-testid^="conversation-turn-"]').first.wait_for(state="visible")
+        except PlaywrightTimeoutError:
+            raise GenerationError("conversation_unavailable") from None
+        current = urlsplit(page.url)
+        if (
+            current.hostname != "chatgpt.com"
+            or current.path.rstrip("/").split("/")[-1] != conversation_url.rsplit("/", 1)[-1]
+        ):
+            raise GenerationError("conversation_unavailable")
 
     async def enter_prompt(self, editor, prompt):
         text = "Generate an image using your image generation tool.\n" + prompt
@@ -195,11 +217,15 @@ class ChatGPTBrowser:
             if code in errors:
                 raise GenerationError(code)
 
-    async def wait_for_result(self, page, response_errors=None) -> dict:
-        assistant = page.locator(
+    async def wait_for_result(self, page, response_errors=None, previous_turns=()) -> dict:
+        assistants = page.locator(
             '[data-testid^="conversation-turn-"][data-turn="assistant"], '
             '[data-testid^="conversation-turn-"]:has([data-message-author-role="assistant"])'
-        ).last
+        )
+        if previous_turns:
+            exclusions = "".join(f":not([data-testid={json.dumps(turn)}])" for turn in previous_turns)
+            assistants = assistants.and_(page.locator(exclusions))
+        assistant = assistants.last
         stop = page.locator('[data-testid="stop-button"]')
         previous = None
         stable_since = asyncio.get_running_loop().time()

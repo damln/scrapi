@@ -74,7 +74,9 @@ class ImageClient:
     @classmethod
     def main(cls):
         parser = argparse.ArgumentParser(description=__doc__)
-        parser.add_argument("prompt", nargs="?")
+        prompt_source = parser.add_mutually_exclusive_group()
+        prompt_source.add_argument("prompt", nargs="?")
+        prompt_source.add_argument("--prompt-file", type=Path, help="Read the prompt from a UTF-8 Markdown/text file")
         parser.add_argument("--base-url", default=os.getenv("SCRAPI_BASE_URL", "http://localhost:10700"))
         parser.add_argument(
             "--session", type=Path, help="Cookie export/storage-state JSON, omitted if configured server-side"
@@ -82,14 +84,22 @@ class ImageClient:
         parser.add_argument("--images", type=Path, help="Reference image folder, can be empty")
         parser.add_argument("--output", type=Path, default=Path("generated"))
         parser.add_argument("--proxy-profile", default="current")
+        parser.add_argument("--conversation-url", help="Continue an existing ChatGPT conversation URL")
         parser.add_argument("--job", help="Resume polling without submitting a prompt")
         args = parser.parse_args()
+        if args.job and args.prompt_file is not None:
+            parser.error("--prompt-file cannot be used with --job")
         client = cls(args.base_url, os.getenv("SCRAPI_API_TOKEN", ""))
         if args.job:
             job_id = args.job
         else:
+            if args.prompt_file is not None:
+                try:
+                    args.prompt = args.prompt_file.read_text(encoding="utf-8")
+                except (OSError, UnicodeError) as exc:
+                    parser.error(f"Cannot read prompt file: {exc}")
             if not args.prompt or not args.prompt.strip():
-                parser.error("Provide a prompt or --job")
+                parser.error("Provide a non-empty prompt, --prompt-file or --job")
             payload = {
                 "prompt": args.prompt,
                 "images": cls.load_images(args.images),
@@ -97,11 +107,15 @@ class ImageClient:
             }
             if args.session:
                 payload["session"] = json.loads(args.session.read_text())
+            if args.conversation_url:
+                payload["conversation_url"] = args.conversation_url
             job = client.request("/api/v1/images/generations", payload)
             job_id = job["id"]
         print(f"Job ID: {job_id}", flush=True)
         print(f"Resume with --job {job_id}", flush=True)
         result = client.poll(job_id)
+        if result.get("conversation_url"):
+            print(f"Conversation URL: {result['conversation_url']}")
         images = result.get("images", [])
         if not images:
             print(result.get("text", "No images returned"))

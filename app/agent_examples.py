@@ -134,7 +134,7 @@ def response_examples() -> dict[str, object]:
             "result": {
                 "images": [{"mime_type": "image/png", "b64_json": "<base64>"}],
                 "text": "",
-                "conversation_url": "https://chatgpt.com/c/example",
+                "conversation_url": "https://chatgpt.com/c/12345678-1234-1234-1234-123456789abc",
             },
         },
         "GET /api/v1/content": {"results": [content_result]},

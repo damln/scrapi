@@ -6,11 +6,13 @@ import tempfile
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
+from unittest.mock import AsyncMock, patch
 from urllib.parse import quote
 
 import pytest
 from cloakbrowser import launch_async
 
+from app import chatgpt_browser
 from app.chatgpt_browser import ChatGPTBrowser, GenerationError, load_session
 
 
@@ -65,6 +67,82 @@ class BrowserTests(unittest.IsolatedAsyncioTestCase):
             result = await self.adapter.wait_for_result(self.page)
         assert result["images"] == []
         assert "Please describe" in result["text"]
+
+    async def test_existing_reply_is_ignored_until_new_reply_arrives(self):
+        await self.set_content("""
+            <article data-testid="conversation-turn-1" data-turn="assistant">
+                Old reply<button aria-label="Copy">Copy</button>
+            </article>
+        """)
+        task = asyncio.create_task(self.adapter.wait_for_result(self.page, previous_turns=["conversation-turn-1"]))
+        try:
+            await asyncio.sleep(9)
+            assert not task.done(), "An old reply must not complete a new job"
+            await self.page.evaluate("""() => {
+                document.body.insertAdjacentHTML('beforeend', `
+                    <article data-testid="conversation-turn-3" data-turn="assistant">
+                        New reply<button aria-label="Copy">Copy</button>
+                    </article>`)
+            }""")
+            async with asyncio.timeout(15):
+                result = await task
+            assert "New reply" in result["text"]
+            assert "Old reply" not in result["text"]
+        finally:
+            task.cancel()
+            await asyncio.gather(task, return_exceptions=True)
+
+    async def test_generate_navigates_to_requested_conversation(self):
+        url = "https://chatgpt.com/c/12345678-1234-1234-1234-123456789abc"
+        context = await self.browser.new_context()
+        visited = []
+
+        async def respond(route):
+            visited.append(route.request.url)
+            await route.fulfill(
+                content_type="text/html",
+                body="""
+                <article data-testid="conversation-turn-1" data-turn="assistant">
+                    Original image<button aria-label="Copy">Copy</button>
+                </article>
+                <div id="prompt-textarea" contenteditable="true"></div>
+                <button data-testid="send-button" onclick="
+                    const reply = document.createElement('article')
+                    reply.dataset.testid = 'conversation-turn-3'
+                    reply.dataset.turn = 'assistant'
+                    reply.textContent = document.querySelector('#prompt-textarea').innerText
+                    reply.insertAdjacentHTML('beforeend', '<button aria-label=Copy>Copy</button>')
+                    document.body.append(reply)
+                ">Send</button>
+                """,
+            )
+
+        await context.route("**/*", respond)
+        with (
+            patch.object(chatgpt_browser, "launch_async", AsyncMock(return_value=self.browser)),
+            patch.object(self.browser, "new_context", AsyncMock(return_value=context)),
+        ):
+            async with asyncio.timeout(20):
+                result = await self.adapter.generate("Make it blue", [], {}, "", url)
+        assert visited[0] == url
+        assert result["conversation_url"] == url
+        assert "Make it blue" in result["text"]
+        assert "Original image" not in result["text"]
+
+    async def test_conversation_redirect_is_rejected(self):
+        await self.set_content('<article data-testid="conversation-turn-1">Unrelated chat</article>')
+        with pytest.raises(GenerationError, match="conversation_unavailable"):
+            await self.adapter.check_conversation(
+                self.page, "https://chatgpt.com/c/12345678-1234-1234-1234-123456789abc"
+            )
+
+    async def test_missing_conversation_is_rejected(self):
+        await self.set_content('<div id="prompt-textarea" contenteditable="true"></div>')
+        self.page.set_default_timeout(100)
+        with pytest.raises(GenerationError, match="conversation_unavailable"):
+            await self.adapter.check_conversation(
+                self.page, "https://chatgpt.com/c/12345678-1234-1234-1234-123456789abc"
+            )
 
     async def test_chatgpt_response_error_fails_without_waiting_for_an_image(self):
         await self.set_content("""

@@ -7,6 +7,7 @@ import base64
 import binascii
 import json
 import logging
+import re
 import time
 import uuid
 from collections.abc import Awaitable, Callable
@@ -51,6 +52,11 @@ class InputImage(BaseModel):
 
 class ImageGenerationRequest(BaseModel):
     prompt: str = Field(min_length=1, max_length=32000)
+    conversation_url: str | None = Field(
+        None,
+        max_length=512,
+        description="Optional https://chatgpt.com/c/<UUID> URL of an existing conversation accessible to this session. Omit for a new chat. Can reuse result.conversation_url from a previous job.",
+    )
     images: list[InputImage] = Field(default_factory=list, max_length=4)
     session: dict | list[dict] | None = Field(
         None,
@@ -62,6 +68,19 @@ class ImageGenerationRequest(BaseModel):
     )
 
     model_config = {"extra": "forbid"}
+
+    @field_validator("conversation_url")
+    @classmethod
+    def valid_conversation_url(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        if not re.fullmatch(
+            r"https://chatgpt\.com/(?:g/[A-Za-z0-9-]+/)?c/"
+            r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}/?",
+            value,
+        ):
+            raise ValueError("Expected a ChatGPT conversation URL")
+        return value.rstrip("/")
 
     @field_validator("prompt")
     @classmethod
@@ -97,6 +116,7 @@ async def prepare_payload(request: ImageGenerationRequest) -> dict:
         raise HTTPException(422, "session_missing_or_invalid") from None
     return {
         "prompt": request.prompt,
+        "conversation_url": request.conversation_url,
         "images": [image.model_dump() for image in request.images],
         "session": session,
         "proxy_url": proxy_url,

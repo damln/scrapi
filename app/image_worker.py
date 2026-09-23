@@ -17,7 +17,9 @@ async def run(payload: dict) -> dict:
         }
         for index, image in enumerate(payload["images"])
     ]
-    return await ChatGPTBrowser().generate(payload["prompt"], images, payload["session"], payload["proxy_url"])
+    return await ChatGPTBrowser().generate(
+        payload["prompt"], images, payload["session"], payload["proxy_url"], payload.get("conversation_url")
+    )
 
 
 def main() -> None:

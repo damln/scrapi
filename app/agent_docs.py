@@ -14,6 +14,7 @@ ENDPOINT_NOTES = {
     "/api/v1/images/generations": [
         "Generates images through your ChatGPT session using Scrapi CloakBrowser and proxy_profile=current (PROXY_URL). Returns 202 immediately with id and poll_url.",
         "Supply prompt, optional images (mime_type + b64_json), and session (cookie export or Playwright storage state). Omit session only when SCRAPI_CHATGPT_SESSION_FILE is configured server-side.",
+        "Optionally supply conversation_url to continue an existing ChatGPT conversation accessible to the supplied session. Reuse result.conversation_url from a previous job. Omit or pass null for a new chat. Only the new reply is returned, with the same polling flow. Shared /share/ links are not supported.",
         "At most 4 input images of 10 MiB each, 30 MiB total JSON. Session data is never returned or persisted.",
         "One generation runs at a time, up to 4 retained jobs. Generation timeout is 600 seconds after the serial queue, including waiting for a browser slot.",
         "Jobs/results live in this process only, expire 1 hour after completion and are lost on restart/reload. Route image endpoints to one replica with one Uvicorn worker. No automatic resubmission after errors.",

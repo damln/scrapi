@@ -6,7 +6,7 @@ from unittest.mock import AsyncMock
 import pytest
 from fastapi import HTTPException
 
-from app import config, image_jobs, image_routes
+from app import config, image_jobs, image_routes, image_worker
 from app.chatgpt_browser import GenerationError, normalize_session
 from app.image_jobs import ImageGenerationRequest, ImageJobs, generate_images, prepare_payload
 from app.main import app
@@ -15,6 +15,51 @@ from tests.conftest import AUTH_HEADER
 
 SESSION = {"cookies": [{"name": "session", "value": "PRIVATE-COOKIE", "domain": ".chatgpt.com"}]}
 PAYLOAD = {"prompt": "a fox", "session": SESSION}
+CONVERSATION_URL = "https://chatgpt.com/c/12345678-1234-1234-1234-123456789abc"
+
+
+@pytest.mark.parametrize("conversation_url", [None, CONVERSATION_URL, CONVERSATION_URL + "/"])
+def test_optional_conversation_reaches_worker(client, monkeypatch, conversation_url):
+    generate = AsyncMock(return_value={"images": [], "conversation_url": CONVERSATION_URL})
+    monkeypatch.setattr(image_worker.ChatGPTBrowser, "generate", generate)
+    app.state.image_jobs.backend = image_worker.run
+    response = client.post(
+        "/api/v1/images/generations",
+        json={**PAYLOAD, "conversation_url": conversation_url},
+        headers=AUTH_HEADER,
+    )
+    assert response.status_code == 202
+    client.portal.call(lambda: asyncio.gather(*app.state.image_jobs.tasks))
+    job = client.get(response.json()["poll_url"], headers=AUTH_HEADER).json()
+    assert job["status"] == "completed"
+    assert generate.call_args.args[-1] == (CONVERSATION_URL if conversation_url else None)
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        "",
+        "https://example.com/c/123",
+        "http://chatgpt.com/c/123",
+        CONVERSATION_URL + "?redirect=https://example.com",
+        CONVERSATION_URL + "#fragment",
+        CONVERSATION_URL.replace("chatgpt.com", "chatgpt.com.evil.test"),
+        CONVERSATION_URL.replace("chatgpt.com", "user@chatgpt.com"),
+        CONVERSATION_URL.replace("/c/", "/share/"),
+        "https://chatgpt.com/c/../settings",
+    ],
+)
+def test_invalid_conversation_url_rejected_before_queue(client, url):
+    backend = AsyncMock()
+    app.state.image_jobs.backend = backend
+    response = client.post("/api/v1/images/generations", json={**PAYLOAD, "conversation_url": url}, headers=AUTH_HEADER)
+    assert response.status_code == 422
+    backend.assert_not_called()
+
+
+def test_project_conversation_url_is_supported():
+    url = CONVERSATION_URL.replace("/c/", "/g/g-p-123-example/c/")
+    assert ImageGenerationRequest(**PAYLOAD, conversation_url=url).conversation_url == url
 
 
 @pytest.mark.parametrize(
