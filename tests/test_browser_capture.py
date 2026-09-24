@@ -3,6 +3,7 @@ import zipfile
 from pathlib import Path
 
 import pytest
+from PIL import Image
 
 from app.browser_capture import BrowserCaptureApiRequest, BrowserCaptureRequest, build_capture_archive
 from app.browser_capture_worker import RESOURCE_TYPES, ResourceCollector, _capture_screenshot, _safe_name
@@ -70,28 +71,41 @@ def test_resource_collector_writes_manifest_for_empty_capture(tmp_path: Path):
 
 def test_jpeg_full_page_screenshot_is_capped(tmp_path: Path):
     class FakePage:
-        screenshot_options = None
+        def __init__(self):
+            self.screenshot_options = None
+            self.viewport_size = {"width": 1440, "height": 1000}
+            self.viewport_changes = []
 
         def evaluate(self, script):
-            return None if "scrollTo" in script else 30_000
+            return None if "scrollTo" in script else 3000
+
+        def set_viewport_size(self, size):
+            self.viewport_changes.append(size)
+            self.viewport_size = size
 
         def screenshot(self, **options):
             self.screenshot_options = options
+            Image.new("RGB", (1440, self.viewport_size["height"]), "white").save(options["path"], format="JPEG")
 
     page = FakePage()
     request = {
         "screenshot_format": "jpeg",
         "screenshot_quality": 98,
         "screenshot": "full",
-        "max_screenshot_height": 20_000,
+        "max_screenshot_height": 2000,
     }
 
     metadata = _capture_screenshot(page, request, tmp_path / "screenshot.jpg", 1440, 1000)
 
     assert metadata["capped"] is True
-    assert metadata["height"] == 20_000
+    assert metadata["height"] == 2000
     assert page.screenshot_options["quality"] == 98
-    assert page.screenshot_options["clip"] == {"x": 0, "y": 0, "width": 1440, "height": 20_000}
+    assert page.screenshot_options["full_page"] is False
+    assert "clip" not in page.screenshot_options
+    assert page.viewport_changes == [
+        {"width": 1440, "height": 2000},
+        {"width": 1440, "height": 1000},
+    ]
 
 
 def test_retina_jpeg_is_downsampled_to_requested_dimensions(tmp_path: Path):
@@ -104,8 +118,6 @@ def test_retina_jpeg_is_downsampled_to_requested_dimensions(tmp_path: Path):
         def screenshot(self, **options):
             self.screenshot_options = options
             Image.new("RGB", (2560, 2560), "white").save(options["path"], format="PNG")
-
-    from PIL import Image
 
     page = FakePage()
     path = tmp_path / "screenshot.jpg"
@@ -126,6 +138,41 @@ def test_retina_jpeg_is_downsampled_to_requested_dimensions(tmp_path: Path):
     assert page.screenshot_options["scale"] == "device"
     assert page.screenshot_options["type"] == "png"
     assert not (tmp_path / "screenshot.retina.png").exists()
+
+
+def test_capped_retina_screenshot_keeps_actual_capture_aspect_ratio(tmp_path: Path):
+    class FakePage:
+        def __init__(self):
+            self.viewport_size = {"width": 320, "height": 240}
+
+        def evaluate(self, script):
+            return None if "scrollTo" in script else 800
+
+        def set_viewport_size(self, size):
+            self.viewport_size = size
+
+        def screenshot(self, **options):
+            # A browser can return fewer pixels than the requested capture height.
+            Image.new("RGB", (640, 480), "white").save(options["path"], format="PNG")
+
+    page = FakePage()
+    path = tmp_path / "screenshot.jpg"
+    request = {
+        "screenshot_format": "jpeg",
+        "screenshot_quality": 99,
+        "render_scale": 2,
+        "screenshot": "full",
+        "max_screenshot_height": 360,
+    }
+
+    metadata = _capture_screenshot(page, request, path, 320, 240)
+
+    with Image.open(path) as screenshot:
+        assert screenshot.size == (320, 240)
+    assert metadata["width"] == 320
+    assert metadata["height"] == 240
+    assert metadata["capped"] is True
+    assert page.viewport_size == {"width": 320, "height": 240}
 
 
 def test_capture_archive_rewrites_artifact_paths(tmp_path: Path):

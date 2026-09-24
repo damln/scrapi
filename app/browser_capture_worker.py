@@ -134,52 +134,63 @@ def _capture_screenshot(page: Any, req: dict[str, Any], path: Path, width: int, 
     )
     if req["screenshot"] == "full":
         capture_height = min(page_height, int(req["max_screenshot_height"]))
-        capped = page_height > capture_height
-        if capped:
-            options["clip"] = {"x": 0, "y": 0, "width": width, "height": capture_height}
+        if page_height > capture_height:
+            original_viewport = page.viewport_size
+            page.set_viewport_size({"width": width, "height": capture_height})
+            options["full_page"] = False
         else:
+            original_viewport = None
             options["full_page"] = True
     else:
-        capture_height = height
-        capped = False
+        original_viewport = None
         options["full_page"] = False
 
-    if render_scale == 1:
-        options.update(path=str(path), type=screenshot_format, scale="css")
-        if screenshot_format == "jpeg":
-            options["quality"] = int(req["screenshot_quality"])
-        page.screenshot(**options)
-    else:
-        # Capture losslessly at the browser's Retina density, then downsample once.
-        # The caller still receives the exact CSS-pixel dimensions it requested.
-        retina_path = path.with_name(f"{path.stem}.retina.png")
-        try:
-            options.update(path=str(retina_path), type="png", scale="device")
+    try:
+        if render_scale == 1:
+            options.update(path=str(path), type=screenshot_format, scale="css")
+            if screenshot_format == "jpeg":
+                options["quality"] = int(req["screenshot_quality"])
             page.screenshot(**options)
-            with Image.open(retina_path) as retina:
-                output = retina.resize((width, capture_height), Image.Resampling.LANCZOS)
-                if screenshot_format == "jpeg":
-                    output.convert("RGB").save(
-                        path,
-                        format="JPEG",
-                        quality=int(req["screenshot_quality"]),
-                        subsampling=0,
-                        optimize=True,
+        else:
+            # Downsample the pixels actually captured, not the predicted page height.
+            retina_path = path.with_name(f"{path.stem}.retina.png")
+            try:
+                options.update(path=str(retina_path), type="png", scale="device")
+                page.screenshot(**options)
+                with Image.open(retina_path) as retina:
+                    output_size = (
+                        round(retina.width / render_scale),
+                        round(retina.height / render_scale),
                     )
-                else:
-                    output.save(path, format="PNG", optimize=True)
-        finally:
-            retina_path.unlink(missing_ok=True)
+                    output = retina.resize(output_size, Image.Resampling.LANCZOS)
+                    if screenshot_format == "jpeg":
+                        output.convert("RGB").save(
+                            path,
+                            format="JPEG",
+                            quality=int(req["screenshot_quality"]),
+                            subsampling=0,
+                            optimize=True,
+                        )
+                    else:
+                        output.save(path, format="PNG", optimize=True)
+            finally:
+                retina_path.unlink(missing_ok=True)
+    finally:
+        if original_viewport is not None:
+            page.set_viewport_size(original_viewport)
+
+    with Image.open(path) as captured:
+        actual_width, actual_height = captured.size
 
     return {
         "mode": req["screenshot"],
         "format": screenshot_format,
         "quality": int(req["screenshot_quality"]) if screenshot_format == "jpeg" else None,
-        "width": width,
-        "height": capture_height,
+        "width": actual_width,
+        "height": actual_height,
         "render_scale": render_scale,
         "page_height": page_height,
-        "capped": capped,
+        "capped": page_height > actual_height if req["screenshot"] == "full" else False,
     }
 
 
