@@ -45,20 +45,32 @@ so run a single API worker and expect jobs to disappear on restart.
 The [local Compose stack](docker-compose.local.yml) mounts private session
 files from `secrets/` (excluded from Git and image builds). Save your ChatGPT
 cookie export as `secrets/chatgpt-session.json` to omit `--session`.
-To use an existing remote SOCKS proxy, keep an SSH forward open in a terminal:
+To use the home HTTP/HTTPS proxy in Docker, run its Cloudflare connector beside
+Scrapi. Set `HOME_PROXY_ENV_FILE` to a private file containing
+`TUNNEL_SERVICE_TOKEN_ID` and `TUNNEL_SERVICE_TOKEN_SECRET` for a token authorized
+by the `Home proxy servers` Access policy:
 
 ```sh
-ssh -N -L 127.0.0.1:11080:127.0.0.1:1080 YOUR_PROXY_SSH_HOST
+HOME_PROXY_ENV_FILE="$HOME/.config/home-proxy/access.env" \
+  docker compose -f docker-compose.local.yml \
+  -f docker-compose.home-proxy.yml up -d --build
 ```
 
-On Docker Desktop, start Scrapi in another terminal with:
+This routes Scrapi through `http://home-proxy:18888` to
+`home-proxy.damianln.com`, then Tinyproxy on M1. No proxy port is published.
+HTTPS destinations use CONNECT through this HTTP proxy. Cloudflare credentials
+are provided only to the connector, not Scrapi or target websites.
+
+For Scrapi running directly on a host with an existing connector:
 
 ```sh
-PROXY_URL=socks5://host.docker.internal:11080 \
-  docker compose -f docker-compose.local.yml up -d --build
+PROXY_URL=http://127.0.0.1:18888 python -m app.cli content https://example.com
 ```
 
-Omit `PROXY_URL` for direct access. No SSH keys belong in the repository.
+Use the generated CLI/API guide to select only Cloak and the current proxy
+when home-IP routing is required; Firecrawl uses its own infrastructure.
+The base local Compose file without the override still supports direct access
+or a caller-supplied `PROXY_URL`. No tokens or SSH keys belong in the repository.
 
 ## Source map
 

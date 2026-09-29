@@ -1,0 +1,23 @@
+# Optional override for docker-compose.local.yml. Credentials stay outside Git.
+services:
+  app:
+    environment:
+      PROXY_URL: http://home-proxy:18888
+    depends_on:
+      home-proxy:
+        condition: service_started
+
+  home-proxy:
+    image: cloudflare/cloudflared:2026.8.3@sha256:51c9cefcb4569df44e1ad403ab1d3d8065aa8e84339bcfc6aee75502e1140339
+    env_file:
+      - ${HOME_PROXY_ENV_FILE:?Set HOME_PROXY_ENV_FILE to your private Access token file}
+    command: ["access", "tcp", "--hostname", "home-proxy.damianln.com", "--url", "0.0.0.0:18888", "--log-level", "warn"]
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "2"
