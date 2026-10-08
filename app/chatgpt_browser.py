@@ -160,6 +160,7 @@ class ChatGPTBrowser:
                 if not await upload.count():
                     await page.get_by_role("button", name=re.compile("Add photos|Attach|Add files", re.I)).first.click()
                 await upload.set_input_files(images)
+                await self.wait_for_uploads(page, len(images))
             stage = "composer"
             await self.enter_prompt(editor, prompt)
             if conversation_url:
@@ -178,6 +179,20 @@ class ChatGPTBrowser:
         finally:
             if browser is not None:
                 await browser.close()
+
+    async def wait_for_uploads(self, page, count):
+        # The app shell keeps the send button enabled while attachments upload,
+        # so wait for every preview and for the composer's progress state to clear.
+        await page.wait_for_function(
+            """count => {
+                const form = document.querySelector('[role="textbox"], #prompt-textarea')?.closest('form')
+                if (!form) return true
+                return form.querySelectorAll('img').length >= count &&
+                    !form.querySelector('[aria-busy="true"], [role="progressbar"]')
+            }""",
+            arg=count,
+            timeout=120000,
+        )
 
     async def check_conversation(self, page, conversation_url):
         try:

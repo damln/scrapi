@@ -86,6 +86,23 @@ class BrowserTests(unittest.IsolatedAsyncioTestCase):
         assert [image["mime_type"] for image in result["images"]] == ["image/png"]
         assert result["text"] == "Generated"
 
+    async def test_waits_for_attachment_uploads(self):
+        await self.set_content("""
+            <form>
+                <div role="textbox" contenteditable="true"></div>
+                <div class="attachment" aria-busy="true"><img src="data:,"></div>
+            </form>
+        """)
+        await self.page.evaluate(
+            "() => setTimeout(() => document.querySelector('.attachment').removeAttribute('aria-busy'), 1500)"
+        )
+        task = asyncio.create_task(self.adapter.wait_for_uploads(self.page, 1))
+        await asyncio.sleep(0.5)
+        assert not task.done(), "Sending must wait for a busy upload"
+        async with asyncio.timeout(10):
+            await task
+        assert await self.page.locator('[aria-busy="true"]').count() == 0
+
     async def test_text_only_reply(self):
         await self.set_content("""
             <article data-testid="conversation-turn-1">
