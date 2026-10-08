@@ -114,6 +114,32 @@ class BrowserTests(unittest.IsolatedAsyncioTestCase):
         assert await self.page.evaluate("changes") == 2
         assert await self.page.locator('.attachment:not([aria-busy="true"])').count() == 1
 
+    async def test_image_only_app_shell_reply(self):
+        await self.set_content("""
+            <div data-content-search-turn-key="fallback-turn-0">
+                <div data-chatgpt-search-unit-key="fallback-turn-0:0:user">
+                    <div role="button" aria-label="User attachment"><img id="reference"></div>Draw it
+                </div>
+                <div data-talvt-turn-state="complete">
+                    <div data-testid="generated-image-gallery">
+                        <button data-testid="generated-image-preview"><img id="output"></button>
+                    </div>
+                    <button aria-label="Copy message">Copy</button>
+                </div>
+            </div>
+        """)
+        await self.page.evaluate("""() => {
+            const canvas = document.createElement('canvas')
+            canvas.width = 512
+            canvas.height = 512
+            document.querySelector('#output').src = canvas.toDataURL('image/png')
+            document.querySelector('#reference').src = canvas.toDataURL('image/jpeg')
+        }""")
+        async with asyncio.timeout(20):
+            result = await self.adapter.wait_for_result(self.page)
+        assert [image["mime_type"] for image in result["images"]] == ["image/png"]
+        assert "Draw it" not in result["text"]
+
     async def test_text_only_reply(self):
         await self.set_content("""
             <article data-testid="conversation-turn-1">

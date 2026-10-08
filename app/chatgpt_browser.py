@@ -22,19 +22,26 @@ TURNS = '[data-testid^="conversation-turn-"], [data-content-search-turn-key]'
 ASSISTANT_TURNS = (
     '[data-testid^="conversation-turn-"][data-turn="assistant"], '
     '[data-testid^="conversation-turn-"]:has([data-message-author-role="assistant"]), '
-    '[data-content-search-turn-key]:has([data-chatgpt-search-unit-key$=":assistant"])'
+    '[data-content-search-turn-key]:has([data-chatgpt-search-unit-key$=":assistant"]), '
+    '[data-content-search-turn-key]:has([data-testid="generated-image-gallery"])'
 )
 TURN_KEY = "e => e.getAttribute('data-testid') || e.getAttribute('data-content-search-turn-key')"
 SEND_BUTTON = '[data-testid="send-button"], form:has([role="textbox"]) button[type="submit"]'
 STOP_BUTTON = '[data-testid="stop-button"], button[aria-label="Stop"]'
 # Text and images of the assistant part of a turn. The newer DOM wraps the
-# user's message, including attached reference images, in the same turn.
+# user's message, including attached reference images, in the same turn, and
+# an image-only reply has no assistant unit, only a generated image gallery.
 READ_TURN = """turn => {
     const user = '[data-message-author-role="user"], [data-chatgpt-search-unit-key$=":user"], [data-user-message-bubble]'
     const parts = turn.querySelectorAll('[data-message-author-role="assistant"], [data-chatgpt-search-unit-key$=":assistant"]')
     const sources = [...turn.querySelectorAll('img')].filter(e => !e.closest(user) && e.complete &&
         e.naturalWidth >= 256 && e.naturalHeight >= 256).map(e => e.currentSrc || e.src)
-    const text = parts.length ? [...parts].map(part => part.innerText).join('\\n') : turn.innerText
+    let text = [...parts].map(part => part.innerText).join('\\n')
+    if (!parts.length) {
+        const reply = turn.cloneNode(true)
+        reply.querySelectorAll(user).forEach(e => e.remove())
+        text = reply.textContent.trim()
+    }
     return {text, sources, complete: !!turn.querySelector('[data-talvt-turn-state="complete"]')}
 }"""
 
