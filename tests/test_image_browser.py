@@ -105,12 +105,12 @@ class BrowserTests(unittest.IsolatedAsyncioTestCase):
                 <article data-testid="conversation-turn-1" data-turn="assistant">
                     Original image<button aria-label="Copy">Copy</button>
                 </article>
-                <div id="prompt-textarea" contenteditable="true"></div>
+                <div class="ProseMirror" contenteditable="true" role="textbox"></div>
                 <button data-testid="send-button" onclick="
                     const reply = document.createElement('article')
                     reply.dataset.testid = 'conversation-turn-3'
                     reply.dataset.turn = 'assistant'
-                    reply.textContent = document.querySelector('#prompt-textarea').innerText
+                    reply.textContent = document.querySelector('[role=textbox]').innerText
                     reply.insertAdjacentHTML('beforeend', '<button aria-label=Copy>Copy</button>')
                     document.body.append(reply)
                 ">Send</button>

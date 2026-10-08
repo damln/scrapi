@@ -123,7 +123,8 @@ class ChatGPTBrowser:
             await page.goto(conversation_url or "https://chatgpt.com/", wait_until="domcontentloaded")
             await self.check_access(page)
             stage = "composer"
-            editor = page.locator("#prompt-textarea")
+            # ChatGPT replaced #prompt-textarea with an unnamed ProseMirror textbox.
+            editor = page.locator('#prompt-textarea, [contenteditable="true"][role="textbox"]').first
             await editor.wait_for(state="visible")
             await self.check_access(page)
             self.check_response_errors(response_errors)
