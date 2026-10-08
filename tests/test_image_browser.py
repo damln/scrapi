@@ -56,6 +56,36 @@ class BrowserTests(unittest.IsolatedAsyncioTestCase):
         assert len(result["images"]) == 1
         assert base64.b64decode(result["images"][0]["b64_json"]).startswith(b"\x89PNG")
 
+    async def test_retrieves_only_assistant_images_from_app_shell_turn(self):
+        await self.set_content("""
+            <div data-content-search-turn-key="fallback-turn-0">
+                <div data-chatgpt-search-unit-key="fallback-turn-0:0:user">
+                    <div data-user-message-bubble="true"><img id="reference">Draw it</div>
+                </div>
+                <div data-talvt-turn-state="complete">
+                    <div data-chatgpt-search-unit-key="fallback-turn-0:1:assistant">Generated</div>
+                    <img id="output">
+                </div>
+            </div>
+            <button aria-label="Stop" hidden>Stop</button>
+        """)
+        await self.page.evaluate("""() => {
+            const canvas = document.createElement('canvas')
+            canvas.width = 512
+            canvas.height = 512
+            const ctx = canvas.getContext('2d')
+            ctx.fillStyle = 'red'
+            ctx.fillRect(0, 0, 512, 512)
+            document.querySelector('#output').src = canvas.toDataURL('image/png')
+            ctx.fillStyle = 'blue'
+            ctx.fillRect(0, 0, 512, 512)
+            document.querySelector('#reference').src = canvas.toDataURL('image/jpeg')
+        }""")
+        async with asyncio.timeout(20):
+            result = await self.adapter.wait_for_result(self.page)
+        assert [image["mime_type"] for image in result["images"]] == ["image/png"]
+        assert result["text"] == "Generated"
+
     async def test_text_only_reply(self):
         await self.set_content("""
             <article data-testid="conversation-turn-1">
@@ -105,8 +135,9 @@ class BrowserTests(unittest.IsolatedAsyncioTestCase):
                 <article data-testid="conversation-turn-1" data-turn="assistant">
                     Original image<button aria-label="Copy">Copy</button>
                 </article>
+                <form onsubmit="event.preventDefault()">
                 <div class="ProseMirror" contenteditable="true" role="textbox"></div>
-                <button data-testid="send-button" onclick="
+                <button type="submit" aria-label="Send" onclick="
                     const reply = document.createElement('article')
                     reply.dataset.testid = 'conversation-turn-3'
                     reply.dataset.turn = 'assistant'
@@ -114,6 +145,7 @@ class BrowserTests(unittest.IsolatedAsyncioTestCase):
                     reply.insertAdjacentHTML('beforeend', '<button aria-label=Copy>Copy</button>')
                     document.body.append(reply)
                 ">Send</button>
+                </form>
                 """,
             )
 

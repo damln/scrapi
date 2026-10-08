@@ -16,6 +16,29 @@ class GenerationError(Exception):
     pass
 
 
+# ChatGPT ships two DOMs: the older one keys turns with data-testid, the newer
+# app shell keys them with data-content-search-turn-key and has no test ids.
+TURNS = '[data-testid^="conversation-turn-"], [data-content-search-turn-key]'
+ASSISTANT_TURNS = (
+    '[data-testid^="conversation-turn-"][data-turn="assistant"], '
+    '[data-testid^="conversation-turn-"]:has([data-message-author-role="assistant"]), '
+    '[data-content-search-turn-key]:has([data-chatgpt-search-unit-key$=":assistant"])'
+)
+TURN_KEY = "e => e.getAttribute('data-testid') || e.getAttribute('data-content-search-turn-key')"
+SEND_BUTTON = '[data-testid="send-button"], form:has([role="textbox"]) button[type="submit"]'
+STOP_BUTTON = '[data-testid="stop-button"], button[aria-label="Stop"]'
+# Text and images of the assistant part of a turn. The newer DOM wraps the
+# user's message, including attached reference images, in the same turn.
+READ_TURN = """turn => {
+    const user = '[data-message-author-role="user"], [data-chatgpt-search-unit-key$=":user"], [data-user-message-bubble]'
+    const parts = turn.querySelectorAll('[data-message-author-role="assistant"], [data-chatgpt-search-unit-key$=":assistant"]')
+    const sources = [...turn.querySelectorAll('img')].filter(e => !e.closest(user) && e.complete &&
+        e.naturalWidth >= 256 && e.naturalHeight >= 256).map(e => e.currentSrc || e.src)
+    const text = parts.length ? [...parts].map(part => part.innerText).join('\\n') : turn.innerText
+    return {text, sources, complete: !!turn.querySelector('[data-talvt-turn-state="complete"]')}
+}"""
+
+
 def load_session(path: Path) -> dict:
     try:
         return normalize_session(json.loads(path.read_text()))
@@ -141,11 +164,9 @@ class ChatGPTBrowser:
             await self.enter_prompt(editor, prompt)
             if conversation_url:
                 await self.check_conversation(page, conversation_url)
-            previous_turns = await page.locator('[data-testid^="conversation-turn-"]').evaluate_all(
-                "elements => elements.map(e => e.getAttribute('data-testid'))"
-            )
+            previous_turns = await page.locator(TURNS).evaluate_all(f"elements => elements.map({TURN_KEY})")
             stage = "submission"
-            send = page.locator('[data-testid="send-button"]')
+            send = page.locator(SEND_BUTTON).first
             # The send button is disabled while attachments are uploading.
             await send.click()
             stage = "result"
@@ -160,7 +181,7 @@ class ChatGPTBrowser:
 
     async def check_conversation(self, page, conversation_url):
         try:
-            await page.locator('[data-testid^="conversation-turn-"]').first.wait_for(state="visible")
+            await page.locator(TURNS).first.wait_for(state="visible")
         except PlaywrightTimeoutError:
             raise GenerationError("conversation_unavailable") from None
         current = urlsplit(page.url)
@@ -219,35 +240,35 @@ class ChatGPTBrowser:
                 raise GenerationError(code)
 
     async def wait_for_result(self, page, response_errors=None, previous_turns=()) -> dict:
-        assistants = page.locator(
-            '[data-testid^="conversation-turn-"][data-turn="assistant"], '
-            '[data-testid^="conversation-turn-"]:has([data-message-author-role="assistant"])'
-        )
+        assistants = page.locator(ASSISTANT_TURNS)
         if previous_turns:
-            exclusions = "".join(f":not([data-testid={json.dumps(turn)}])" for turn in previous_turns)
+            exclusions = "".join(
+                f":not([data-testid={json.dumps(turn)}]):not([data-content-search-turn-key={json.dumps(turn)}])"
+                for turn in previous_turns
+            )
             assistants = assistants.and_(page.locator(exclusions))
         assistant = assistants.last
-        stop = page.locator('[data-testid="stop-button"]')
+        stop = page.locator(STOP_BUTTON).first
         previous = None
         stable_since = asyncio.get_running_loop().time()
         while True:
             self.check_response_errors(response_errors or set())
             await self.check_access(page)
             if await assistant.count():
-                text = await assistant.inner_text()
+                turn = await assistant.evaluate(READ_TURN)
+                text, sources = turn["text"], turn["sources"]
                 if "something went wrong while generating the response" in text.lower():
                     raise GenerationError("chatgpt_response_error")
-                sources = await assistant.locator("img").evaluate_all("""elements =>
-                    elements.filter(e => e.complete && e.naturalWidth >= 256 &&
-                        e.naturalHeight >= 256).map(e => e.currentSrc || e.src)
-                """)
                 signature = (text, tuple(sources))
                 if signature != previous or await stop.is_visible():
                     previous = signature
                     stable_since = asyncio.get_running_loop().time()
-                finished = await assistant.get_by_role(
-                    "button", name=re.compile("Copy|Good response|Bad response", re.I)
-                ).count()
+                finished = (
+                    turn["complete"]
+                    or await assistant.get_by_role(
+                        "button", name=re.compile("Copy|Good response|Bad response", re.I)
+                    ).count()
+                )
                 if finished and asyncio.get_running_loop().time() - stable_since >= 8:
                     results = []
                     if len(set(sources)) > 4:
