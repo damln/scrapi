@@ -156,11 +156,7 @@ class ChatGPTBrowser:
                 await self.check_conversation(page, conversation_url)
             if images:
                 stage = "image_upload"
-                upload = page.locator('input[type="file"]').first
-                if not await upload.count():
-                    await page.get_by_role("button", name=re.compile("Add photos|Attach|Add files", re.I)).first.click()
-                await upload.set_input_files(images)
-                await self.wait_for_uploads(page, len(images))
+                await self.attach_images(page, images)
             stage = "composer"
             await self.enter_prompt(editor, prompt)
             if conversation_url:
@@ -180,18 +176,37 @@ class ChatGPTBrowser:
             if browser is not None:
                 await browser.close()
 
-    async def wait_for_uploads(self, page, count):
-        # The app shell keeps the send button enabled while attachments upload,
-        # so wait for every preview and for the composer's progress state to clear.
-        await page.wait_for_function(
-            """count => {
-                const form = document.querySelector('[role="textbox"], #prompt-textarea')?.closest('form')
+    async def attach_images(self, page, images, preview_timeout=8000):
+        # Files set before the app hydrates are silently dropped, so set them
+        # again until the composer shows a preview for each one.
+        for attempt in range(6):
+            upload = page.locator('input[type="file"]').first
+            if not await upload.count():
+                await page.get_by_role("button", name=re.compile("Add photos|Attach|Add files", re.I)).first.click()
+            if attempt:
+                # Setting the same files twice fires no change event.
+                await upload.set_input_files([])
+            await upload.set_input_files(images)
+            try:
+                await self.wait_for_uploads(upload, len(images), settled=False, limit_ms=preview_timeout)
+                break
+            except PlaywrightTimeoutError:
+                continue
+        else:
+            raise GenerationError("image_upload_failed")
+        # The app shell keeps the send button enabled while attachments upload.
+        await self.wait_for_uploads(upload, len(images), settled=True, limit_ms=120000)
+
+    async def wait_for_uploads(self, upload, count, settled, limit_ms):
+        await upload.page.wait_for_function(
+            """([input, count, settled]) => {
+                const form = input.closest('form')
                 if (!form) return true
                 return form.querySelectorAll('img').length >= count &&
-                    !form.querySelector('[aria-busy="true"], [role="progressbar"]')
+                    !(settled && form.querySelector('[aria-busy="true"], [role="progressbar"]'))
             }""",
-            arg=count,
-            timeout=120000,
+            arg=[await upload.element_handle(), count, settled],
+            timeout=limit_ms,
         )
 
     async def check_conversation(self, page, conversation_url):

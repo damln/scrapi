@@ -15,6 +15,8 @@ from cloakbrowser import launch_async
 from app import chatgpt_browser
 from app.chatgpt_browser import ChatGPTBrowser, GenerationError, load_session
 
+PNG_PIXEL = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=="
+
 
 @pytest.mark.skipif(os.environ.get("SCRAPI_BROWSER_TESTS") != "1", reason="Opt-in real CloakBrowser integration tests")
 class BrowserTests(unittest.IsolatedAsyncioTestCase):
@@ -86,22 +88,31 @@ class BrowserTests(unittest.IsolatedAsyncioTestCase):
         assert [image["mime_type"] for image in result["images"]] == ["image/png"]
         assert result["text"] == "Generated"
 
-    async def test_waits_for_attachment_uploads(self):
+    async def test_attach_retries_dropped_files_and_waits_for_upload(self):
         await self.set_content("""
             <form>
                 <div role="textbox" contenteditable="true"></div>
-                <div class="attachment" aria-busy="true"><img src="data:,"></div>
+                <input type="file" hidden>
             </form>
+            <script>
+            let changes = 0
+            const input = document.querySelector('input')
+            input.addEventListener('change', () => {
+                // The first file arrives before hydration and is dropped.
+                if (!input.files.length || ++changes === 1) return
+                document.querySelector('form').insertAdjacentHTML(
+                    'beforeend', '<div class="attachment" aria-busy="true"><img src="data:,"></div>')
+                setTimeout(() => document.querySelector('.attachment').removeAttribute('aria-busy'), 1500)
+            })
+            </script>
         """)
-        await self.page.evaluate(
-            "() => setTimeout(() => document.querySelector('.attachment').removeAttribute('aria-busy'), 1500)"
-        )
-        task = asyncio.create_task(self.adapter.wait_for_uploads(self.page, 1))
-        await asyncio.sleep(0.5)
-        assert not task.done(), "Sending must wait for a busy upload"
-        async with asyncio.timeout(10):
-            await task
-        assert await self.page.locator('[aria-busy="true"]').count() == 0
+        with tempfile.TemporaryDirectory() as directory:
+            image = Path(directory) / "reference.png"
+            image.write_bytes(base64.b64decode(PNG_PIXEL))
+            async with asyncio.timeout(20):
+                await self.adapter.attach_images(self.page, [str(image)], preview_timeout=1000)
+        assert await self.page.evaluate("changes") == 2
+        assert await self.page.locator('.attachment:not([aria-busy="true"])').count() == 1
 
     async def test_text_only_reply(self):
         await self.set_content("""
