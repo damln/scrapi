@@ -155,7 +155,8 @@ class ChatGPTBrowser:
             stage = "composer"
             # ChatGPT replaced #prompt-textarea with an unnamed ProseMirror textbox.
             editor = page.locator('#prompt-textarea, [contenteditable="true"][role="textbox"]').first
-            await editor.wait_for(state="visible")
+            # The proxied app shell can take well over 30 seconds to hydrate.
+            await editor.wait_for(state="visible", timeout=90000)
             await self.check_access(page)
             self.check_response_errors(response_errors)
             if conversation_url:
@@ -164,7 +165,7 @@ class ChatGPTBrowser:
             if images:
                 stage = "image_upload"
                 await self.attach_images(page, images)
-            stage = "composer"
+            stage = "prompt_entry"
             await self.enter_prompt(editor, prompt)
             if conversation_url:
                 await self.check_conversation(page, conversation_url)
